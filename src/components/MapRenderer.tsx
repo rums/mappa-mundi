@@ -2,6 +2,9 @@ import React, { useState, useCallback, useMemo } from 'react';
 import type { SemanticZoomLevel, RelationshipKind } from '../types';
 import { computeTreemapLayout, type LayoutRect } from '../utils/layout';
 import { regionColor } from '../utils/color';
+import { scoreToColor } from '../utils/colorScale';
+import type { ColorScale } from '../utils/colorScale';
+import type { LayerScore } from '../layers/types';
 
 interface MapRendererProps {
   data: SemanticZoomLevel | null;
@@ -11,6 +14,8 @@ interface MapRendererProps {
   regionSizeBy?: 'modules' | 'loc';
   onZoomIn?: (regionId: string) => void;
   onRegionSelect?: (regionId: string) => void;
+  regionScores?: Map<string, LayerScore>;
+  colorScale?: ColorScale;
 }
 
 const DASH_PATTERNS: Record<RelationshipKind, string> = {
@@ -28,6 +33,8 @@ export function MapRenderer({
   regionSizeBy = 'modules',
   onZoomIn,
   onRegionSelect,
+  regionScores,
+  colorScale,
 }: MapRendererProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [zoom, setZoom] = useState({ scale: 1, x: 0, y: 0 });
@@ -171,7 +178,7 @@ export function MapRenderer({
                 y={rect.y}
                 width={rect.width}
                 height={rect.height}
-                fill={regionColor(rect.regionId)}
+                fill={regionScores && colorScale ? scoreToColor(regionScores.get(rect.regionId)?.value, colorScale) : regionColor(rect.regionId)}
                 stroke={isSelected ? '#000' : '#fff'}
                 strokeWidth={isSelected ? 3 : 1}
                 style={{ cursor: 'pointer' }}
