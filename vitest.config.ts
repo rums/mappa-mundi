@@ -7,5 +7,10 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
+    // Explicitly list faked APIs to exclude setImmediate — Fastify's light-my-request
+    // (used by app.inject()) relies on real setImmediate for request processing.
+    fakeTimers: {
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    },
   },
 });
