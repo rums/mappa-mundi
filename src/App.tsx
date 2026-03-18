@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useScan } from './hooks/useScan';
 import { useZoomLevel } from './hooks/useZoomLevel';
 import { useLayers } from './hooks/useLayers';
@@ -8,6 +8,7 @@ import { LayerPicker } from './components/LayerPicker';
 import { LayerDetailPanel } from './components/LayerDetailPanel';
 import type { ColorScale } from './utils/colorScale';
 import type { SemanticZoomLevel } from './types';
+import type { LayerScore } from './layers/types';
 
 const DEFAULT_COLOR_SCALE: ColorScale = { low: '#d32f2f', high: '#388e3c' };
 
@@ -119,6 +120,34 @@ export function App() {
 
   const activeLayers = activeLayerId ? [activeLayerId] : [];
 
+  // Aggregate module scores to region scores for the map overlay
+  const regionScores = useMemo(() => {
+    if (!scores || !displayData) return undefined;
+    const map = new Map<string, LayerScore>();
+    for (const region of displayData.regions) {
+      // Region IDs are like "region-src", "region-api", "module-foo"
+      // Module IDs are like "src/scanner.ts", "src/api/server.ts"
+      const prefix = region.id.replace(/^region-/, '').replace(/-files$/, '');
+      const matching: LayerScore[] = [];
+      for (const [moduleId, score] of Object.entries(scores)) {
+        const parts = moduleId.split('/');
+        // Check if any path segment matches the region name
+        if (parts.some(p => p.toLowerCase() === prefix.toLowerCase()) ||
+            moduleId.toLowerCase().startsWith(prefix.toLowerCase() + '/') ||
+            moduleId.toLowerCase().startsWith(prefix.toLowerCase())) {
+          matching.push(score as LayerScore);
+        }
+      }
+      if (matching.length > 0) {
+        // Aggregate: use max value and worst severity
+        const maxScore = matching.reduce((best, s) =>
+          s.value > best.value ? s : best, matching[0]);
+        map.set(region.id, maxScore);
+      }
+    }
+    return map.size > 0 ? map : undefined;
+  }, [scores, displayData]);
+
   // Show search results dropdown
   const showSearchDropdown = results.length > 0 && !searchDismissed;
   const visibleResults = results.slice(0, 20);
@@ -222,8 +251,8 @@ export function App() {
                 onZoomIn={handleZoomIn}
                 onRegionSelect={handleRegionSelect}
                 selectedRegionId={selectedRegionId}
-                regionScores={activeLayerId && scores ? scores : undefined}
-                colorScale={activeLayerId && scores ? DEFAULT_COLOR_SCALE : undefined}
+                regionScores={regionScores}
+                colorScale={regionScores ? DEFAULT_COLOR_SCALE : undefined}
               />
             </div>
           )}

@@ -46,7 +46,7 @@ export function useLayers() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (!controller.signal.aborted) {
-        setScores(json.scores);
+        setScores(json.moduleScores);
         setScoresLoading(false);
       }
     } catch {
