@@ -24,6 +24,7 @@ export class Orchestrator {
   private lastZoomLevel?: SemanticZoomLevel;
   private lastGraph?: DependencyGraph;
   private lastDirTree?: DirectoryNode;
+  private regionModuleMap?: Record<string, string[]>;
 
   createJob(type: JobType): Job {
     const job: Job = {
@@ -123,5 +124,13 @@ export class Orchestrator {
 
   getLastDirTree(): DirectoryNode | undefined {
     return this.lastDirTree;
+  }
+
+  setRegionModuleMap(map: Record<string, string[]>): void {
+    this.regionModuleMap = map;
+  }
+
+  getRegionModuleMap(): Record<string, string[]> | undefined {
+    return this.regionModuleMap;
   }
 }

@@ -153,40 +153,47 @@ export function registerZoomRoutes(app: FastifyInstance, orchestrator: Orchestra
       });
     }
 
-    // First check: is this a top-level region?
+    // Look up region and its modules
     const topRegion = zoomLevel.regions.find(r => r.id === regionId);
     let regionModules: string[] | undefined;
     let regionLabel: string;
 
-    if (topRegion) {
-      // Top-level region — reconstruct modules from directory tree
-      const regionDirName = topRegion.name.toLowerCase();
-      const regionDir = dirTree.children.find(
-        (c) => c.name.toLowerCase() === regionDirName,
-      );
+    // Check orchestrator's module map first (works for both LLM and fallback regions)
+    const storedModuleMap = orchestrator.getRegionModuleMap();
 
-      if (regionDir) {
-        const dirPath = regionDir.path.endsWith('/') ? regionDir.path : regionDir.path + '/';
-        regionModules = graph.nodes.map((n) => n.id).filter((id) => id.startsWith(dirPath));
-      } else {
-        // Root-level files not under any child directory
-        const allChildPaths = dirTree.children.map(
-          (c) => c.path.endsWith('/') ? c.path : c.path + '/',
-        );
-        regionModules = graph.nodes
-          .map((n) => n.id)
-          .filter((id) => !allChildPaths.some((p) => id.startsWith(p)));
-      }
+    if (topRegion) {
       regionLabel = topRegion.name;
+
+      // Use stored module map if available
+      if (storedModuleMap && storedModuleMap[regionId]) {
+        regionModules = storedModuleMap[regionId];
+      } else {
+        // Fallback: reconstruct from directory tree
+        const regionDirName = topRegion.name.toLowerCase();
+        const regionDir = dirTree.children.find(
+          (c) => c.name.toLowerCase() === regionDirName,
+        );
+
+        if (regionDir) {
+          const dirPath = regionDir.path.endsWith('/') ? regionDir.path : regionDir.path + '/';
+          regionModules = graph.nodes.map((n) => n.id).filter((id) => id.startsWith(dirPath));
+        } else {
+          const allChildPaths = dirTree.children.map(
+            (c) => c.path.endsWith('/') ? c.path : c.path + '/',
+          );
+          regionModules = graph.nodes
+            .map((n) => n.id)
+            .filter((id) => !allChildPaths.some((p) => id.startsWith(p)));
+        }
+      }
     } else {
-      // Sub-region — check the module cache from a previous zoom
+      // Sub-region — check the zoom-level module cache
       regionModules = regionModuleCache.get(regionId);
       if (!regionModules) {
         return reply.status(404).send({
           error: { code: 'REGION_NOT_FOUND', message: `Region not found: ${regionId}` },
         });
       }
-      // Extract label from regionId (region-xxx -> Xxx)
       const namePart = regionId.replace(/^(region-|module-)/, '');
       regionLabel = titleCase(namePart);
     }

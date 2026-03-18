@@ -70,7 +70,7 @@ describe('useLayers', () => {
   it('activateLayer sets activeLayerId and fetches scores', async () => {
     vi.mocked(globalThis.fetch)
       .mockResolvedValueOnce(jsonResponse({ layers: sampleLayers }))
-      .mockResolvedValueOnce(jsonResponse({ scores: sampleScores }));
+      .mockResolvedValueOnce(jsonResponse({ moduleScores: sampleScores }));
 
     const { result } = renderHook(() => useLayers());
 
@@ -115,7 +115,7 @@ describe('useLayers', () => {
     expect(result.current.scoresLoading).toBe(true);
 
     await act(async () => {
-      resolveScores!(jsonResponse({ scores: sampleScores }));
+      resolveScores!(jsonResponse({ moduleScores: sampleScores }));
     });
 
     expect(result.current.scoresLoading).toBe(false);
@@ -124,7 +124,7 @@ describe('useLayers', () => {
   it('deactivateLayer clears activeLayerId and scores', async () => {
     vi.mocked(globalThis.fetch)
       .mockResolvedValueOnce(jsonResponse({ layers: sampleLayers }))
-      .mockResolvedValueOnce(jsonResponse({ scores: sampleScores }));
+      .mockResolvedValueOnce(jsonResponse({ moduleScores: sampleScores }));
 
     const { result } = renderHook(() => useLayers());
 
@@ -194,7 +194,7 @@ describe('useLayers', () => {
       .mockImplementationOnce(
         () => new Promise((r) => { resolveFirst = r; }),
       )
-      .mockResolvedValueOnce(jsonResponse({ scores: sampleScores }));
+      .mockResolvedValueOnce(jsonResponse({ moduleScores: sampleScores }));
 
     const { result } = renderHook(() => useLayers());
 
