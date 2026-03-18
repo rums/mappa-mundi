@@ -1,0 +1,21 @@
+rain:
+    sources:
+        github:
+            labels:
+                - spec
+                - tdd
+                - feature
+                - bug
+astral:
+    theme: custom
+    names:
+        - Mercator
+        - Ptolemy
+        - Strabo
+        - Eratosthenes
+        - Waldseemuller
+        - Ortelius
+        - Cresques
+        - AlIdrisi
+development:
+    mode: github
