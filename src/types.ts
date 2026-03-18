@@ -44,3 +44,31 @@ export interface ScanOptions {
   excludeTests?: boolean;
   tsConfigPath?: string;
 }
+
+/**
+ * SemanticZoomLevel data model (from Spec #4 / Issue #15).
+ * Used by the canvas renderer for region visualization.
+ */
+
+export type RelationshipKind = 'depends-on' | 'extends' | 'implements' | 'uses';
+
+export interface Region {
+  id: string;
+  name: string;
+  moduleCount: number;
+  loc: number;
+}
+
+export interface Relationship {
+  sourceId: string;
+  targetId: string;
+  kind: RelationshipKind;
+  edgeCount: number;
+}
+
+export interface SemanticZoomLevel {
+  id: string;
+  label: string;
+  regions: Region[];
+  relationships: Relationship[];
+}
