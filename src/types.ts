@@ -14,10 +14,18 @@ export interface ExportInfo {
   source?: string;
 }
 
+export interface SymbolInfo {
+  name: string;
+  kind: 'interface' | 'function' | 'class' | 'enum' | 'type' | 'variable';
+  signature: string;
+  exported: boolean;
+}
+
 export interface ModuleNode {
   id: string;
   filePath: string;
   exports: ExportInfo[];
+  symbols: SymbolInfo[];
 }
 
 export interface ImportEdge {

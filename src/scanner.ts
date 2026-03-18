@@ -2,6 +2,7 @@ import { resolve, relative } from 'path';
 import { readdirSync, statSync } from 'fs';
 import { parseFile } from './parser.js';
 import { resolveImport } from './resolver.js';
+import { extractSymbols } from './symbol-extractor.js';
 import type { DependencyGraph, ModuleNode, ImportEdge, ScanOptions, ExportInfo } from './types.js';
 
 function findTsFiles(dir: string): string[] {
@@ -50,7 +51,9 @@ export async function scan(
       return exp;
     });
 
-    nodes.push({ id, filePath, exports });
+    const symbols = await extractSymbols(filePath);
+
+    nodes.push({ id, filePath, exports, symbols });
 
     // Create edges from imports
     for (const imp of parsed.imports) {
