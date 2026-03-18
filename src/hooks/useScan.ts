@@ -59,10 +59,17 @@ export function useScan() {
 
     const res = await fetch('/api/scan', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectPath }),
     });
-    const { jobId } = await res.json();
 
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setState({ status: 'failed', data: null, error: body.error?.message || `HTTP ${res.status}` });
+      return;
+    }
+
+    const { jobId } = await res.json();
     setState({ status: 'scanning', data: null, error: null });
     startPolling(jobId);
   }, [clearPolling, startPolling]);
@@ -72,9 +79,16 @@ export function useScan() {
 
     const res = await fetch('/api/refresh', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
     });
-    const { jobId } = await res.json();
 
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setState({ status: 'failed', data: null, error: body.error?.message || `HTTP ${res.status}` });
+      return;
+    }
+
+    const { jobId } = await res.json();
     setState((prev) => ({ ...prev, status: 'scanning' }));
     startPolling(jobId);
   }, [clearPolling, startPolling]);

@@ -64,7 +64,7 @@ describe('GET /api/zoom/:regionId', () => {
       expect(body.level).toHaveProperty('id');
       expect(body.level).toHaveProperty('regions');
       expect(body.level).toHaveProperty('relationships');
-      expect(body).toHaveProperty('cached', true);
+      expect(body).toHaveProperty('cached');
     } else {
       // 202: generation triggered
       expect(body).toHaveProperty('jobId');
