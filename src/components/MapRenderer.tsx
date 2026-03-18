@@ -16,6 +16,7 @@ interface MapRendererProps {
   onRegionSelect?: (regionId: string) => void;
   regionScores?: Map<string, LayerScore>;
   colorScale?: ColorScale;
+  selectedRegionId?: string | null;
 }
 
 const DASH_PATTERNS: Record<RelationshipKind, string> = {
@@ -35,8 +36,10 @@ export function MapRenderer({
   onRegionSelect,
   regionScores,
   colorScale,
+  selectedRegionId,
 }: MapRendererProps) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null);
+  const selectedId = selectedRegionId !== undefined ? selectedRegionId : internalSelectedId;
   const [zoom, setZoom] = useState({ scale: 1, x: 0, y: 0 });
 
   const layout = useMemo(() => {
@@ -77,7 +80,7 @@ export function MapRenderer({
     (e: React.MouseEvent<SVGSVGElement>) => {
       // Only deselect if clicking on the SVG itself (not bubbling from a child)
       if (e.target === e.currentTarget) {
-        setSelectedId(null);
+        setInternalSelectedId(null);
       }
     },
     [],
@@ -86,7 +89,7 @@ export function MapRenderer({
   const handleRectClick = useCallback(
     (regionId: string, e: React.MouseEvent) => {
       e.stopPropagation();
-      setSelectedId(regionId);
+      setInternalSelectedId(regionId);
       onRegionSelect?.(regionId);
     },
     [onRegionSelect],
@@ -185,18 +188,20 @@ export function MapRenderer({
                 onClick={(e) => handleRectClick(rect.regionId, e)}
                 onDoubleClick={(e) => handleRectDblClick(rect.regionId, e)}
               />
-              <text
-                data-region-id={rect.regionId}
-                x={rect.x + rect.width / 2}
-                y={rect.y + rect.height / 2}
-                textAnchor="middle"
-                dominantBaseline="central"
-                fontSize={12}
-                fill="#fff"
-                pointerEvents="none"
-              >
-                {region?.name ?? rect.regionId}
-              </text>
+              {selectedRegionId !== rect.regionId && (
+                <text
+                  data-region-id={rect.regionId}
+                  x={rect.x + rect.width / 2}
+                  y={rect.y + rect.height / 2}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontSize={12}
+                  fill="#fff"
+                  pointerEvents="none"
+                >
+                  {region?.name ?? rect.regionId}
+                </text>
+              )}
             </g>
           );
         })}
