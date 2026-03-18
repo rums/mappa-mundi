@@ -3,7 +3,7 @@ rain:
         github:
             labels:
                 - spec
-                - tdd
+                - flow:tdd-development
                 - feature
                 - bug
 astral:
