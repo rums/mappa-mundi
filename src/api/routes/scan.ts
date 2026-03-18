@@ -7,7 +7,7 @@ import { scan } from '../../scanner.js';
 import { buildDirectoryTree } from '../../directory-tree.js';
 import { buildFallback } from '../../interpret/fallback.js';
 import { clusterTopLevel } from '../../interpret/cluster.js';
-import { createAnthropicClient } from '../llm-client.js';
+import { createLLMClient } from '../llm-client.js';
 
 export function runScanPipeline(orchestrator: Orchestrator, jobId: string, projectPath: string): void {
   // Fire and forget - don't await
@@ -17,7 +17,7 @@ export function runScanPipeline(orchestrator: Orchestrator, jobId: string, proje
       const dirTree = await buildDirectoryTree(projectPath, graph);
 
       // Try LLM-powered clustering, fall back to directory-based grouping
-      const llm = createAnthropicClient();
+      const llm = createLLMClient();
       let zoomLevel;
       if (llm) {
         try {

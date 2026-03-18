@@ -1,43 +1,55 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { LLMClient, LLMResponse } from '../interpret/cluster';
 
+const execFileAsync = promisify(execFile);
+
 /**
- * Creates an LLM client backed by the Anthropic Claude API.
- * Requires ANTHROPIC_API_KEY environment variable.
+ * Creates an LLM client that shells out to `claude --print`.
+ * No API key needed — uses whatever auth Claude Code already has.
  */
-export function createAnthropicClient(model?: string): LLMClient | null {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return null;
-  }
-
-  const client = new Anthropic();
-  const modelId = model || 'claude-sonnet-4-20250514';
-
+export function createClaudeCodeClient(): LLMClient {
   return {
     async complete(prompt: string, responseSchema: object): Promise<LLMResponse> {
-      const response = await client.messages.create({
-        model: modelId,
-        max_tokens: 4096,
-        messages: [{ role: 'user', content: prompt }],
-        system: 'You are a code analysis assistant. Respond with valid JSON only, no markdown fences.',
+      const fullPrompt = `You are a code analysis assistant. Respond with valid JSON only, no markdown fences.\n\n${prompt}`;
+
+      const { stdout } = await execFileAsync('claude', [
+        '--print',
+        '--output-format', 'text',
+        fullPrompt,
+      ], {
+        maxBuffer: 1024 * 1024, // 1MB
+        timeout: 120_000,       // 2 min
       });
 
-      // Extract text content
-      const textBlock = response.content.find((b) => b.type === 'text');
-      if (!textBlock || textBlock.type !== 'text') {
-        throw new Error('No text response from LLM');
+      // Strip markdown fences if present
+      let text = stdout.trim();
+      if (text.startsWith('```')) {
+        text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
       }
 
-      // Parse JSON from response
-      const content = JSON.parse(textBlock.text);
+      const content = JSON.parse(text);
 
       return {
         content,
-        usage: {
-          promptTokens: response.usage.input_tokens,
-          completionTokens: response.usage.output_tokens,
-        },
+        usage: { promptTokens: 0, completionTokens: 0 },
       };
     },
   };
+}
+
+/**
+ * Creates an LLM client. Uses claude --print (no API key needed).
+ * Set MAPPA_LLM=off to disable, or MAPPA_LLM=on to enable.
+ * Defaults to on if not in test environment.
+ */
+export function createLLMClient(): LLMClient | null {
+  const env = process.env.MAPPA_LLM;
+  if (env === 'off') return null;
+
+  // Skip in test environments unless explicitly enabled
+  if (!env && process.env.NODE_ENV === 'test') return null;
+  if (!env && process.env.VITEST) return null;
+
+  return createClaudeCodeClient();
 }
