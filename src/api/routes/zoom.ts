@@ -2,6 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import type { Orchestrator } from '../orchestrator.js';
 import type { DependencyGraph, Region, Relationship, SemanticZoomLevel } from '../../types.js';
 import type { DirectoryNode } from '../../directory-tree.js';
+import { resolveAtoms, type Atom } from '../../interpret/atoms/resolve.js';
+import { buildStratum, type Stratum, type StratumCache, type LLMClient } from '../../interpret/stratum.js';
+import type { Compound, Reference } from '../../interpret/atoms/references.js';
+import type { Breadcrumb } from '../../interpret/atoms/prompt.js';
 
 function titleCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -130,12 +134,174 @@ function deriveSubRelationships(
   return relationships;
 }
 
+// Simple in-memory stratum cache for atom-compound model
+function createSimpleStratumCache(): StratumCache {
+  const store = new Map<string, { stratum: Stratum; stale: boolean }>();
+  return {
+    get(projectId: string, parentCompoundId: string, atomType: string) {
+      return store.get(`${projectId}::${parentCompoundId}::${atomType}`) ?? null;
+    },
+    set(projectId: string, parentCompoundId: string, atomType: string, stratum: Stratum) {
+      store.set(`${projectId}::${parentCompoundId}::${atomType}`, { stratum, stale: false });
+    },
+    invalidateDescendants() { return 0; },
+    clear(projectId: string) {
+      for (const key of store.keys()) {
+        if (key.startsWith(`${projectId}::`)) store.delete(key);
+      }
+    },
+  };
+}
+
+// Simple LLM client that uses directory-based fallback (no actual LLM for now)
+function createFallbackLLMClient(): LLMClient {
+  return {
+    async complete() {
+      throw new Error('LLM not configured');
+    },
+  };
+}
+
 export function registerZoomRoutes(app: FastifyInstance, orchestrator: Orchestrator): void {
   // In-memory map of regionId -> module list, built during zoom
   const regionModuleCache = new Map<string, string[]>();
 
+  // Atom-compound model state
+  const stratumCache = createSimpleStratumCache();
+  const llmClient = createFallbackLLMClient();
+  const compoundStore = new Map<string, { compound: Compound; parentCompoundId: string | null; depth: number; stratum: Stratum }>();
+  const pendingZooms = new Map<string, Promise<any>>();
+
+  const defaultConfig = { minCompoundSize: 6, maxStratumDepth: 5, maxRetries: 2 };
+
   app.get('/api/zoom/:regionId', async (request, reply) => {
     const { regionId } = request.params as { regionId: string };
+
+    // --- Atom-Compound Model: handle 'root' and compound IDs ---
+    if (regionId === 'root' || regionId.startsWith('c-')) {
+      if (!orchestrator.getActiveProjectPath()) {
+        return reply.status(400).send({
+          error: { code: 'NO_PROJECT', message: 'No project scanned' },
+        });
+      }
+
+      const graph = orchestrator.getLastGraph();
+      if (!graph) {
+        return reply.status(400).send({
+          error: { code: 'NO_PROJECT', message: 'No project scanned' },
+        });
+      }
+
+      if (regionId === 'root') {
+        // Build or return cached stratum 0
+        const cacheKey = 'zoom:root';
+        if (pendingZooms.has(cacheKey)) {
+          const result = await pendingZooms.get(cacheKey);
+          return reply.status(200).send(result);
+        }
+
+        const promise = (async () => {
+          const atoms = resolveAtoms(graph);
+          const stratum = await buildStratum(
+            null, atoms, graph.edges, [], defaultConfig,
+            llmClient, stratumCache, 'default', 'file',
+          );
+
+          // Store compound info for later lookups
+          for (const compound of stratum.compounds) {
+            compoundStore.set(compound.id, {
+              compound,
+              parentCompoundId: null,
+              depth: 0,
+              stratum,
+            });
+          }
+
+          return { stratum, stale: false };
+        })();
+
+        pendingZooms.set(cacheKey, promise);
+        try {
+          const result = await promise;
+          return reply.status(200).send(result);
+        } finally {
+          pendingZooms.delete(cacheKey);
+        }
+      }
+
+      // Zooming into a specific compound
+      const compoundInfo = compoundStore.get(regionId);
+      if (!compoundInfo) {
+        return reply.status(404).send({
+          error: { code: 'COMPOUND_NOT_FOUND', message: `Compound not found: ${regionId}` },
+        });
+      }
+
+      if (!compoundInfo.compound.zoomable) {
+        return reply.status(400).send({
+          error: { code: 'LEAF_COMPOUND', message: `Cannot zoom into leaf compound: ${regionId}` },
+        });
+      }
+
+      // Build child stratum
+      const cacheKey = `zoom:${regionId}`;
+      if (pendingZooms.has(cacheKey)) {
+        const result = await pendingZooms.get(cacheKey);
+        return reply.status(200).send(result);
+      }
+
+      const promise = (async () => {
+        const atoms = resolveAtoms(graph);
+        const parentAtoms = atoms.filter((a) => compoundInfo.compound.atomIds.includes(a.id));
+        const parentEdges = graph.edges.filter(
+          (e) => compoundInfo.compound.atomIds.includes(e.source) && compoundInfo.compound.atomIds.includes(e.target),
+        );
+
+        // Build breadcrumbs from parent stratum + parent compound
+        const breadcrumbs: Breadcrumb[] = [
+          ...compoundInfo.stratum.breadcrumbs,
+          {
+            compoundId: compoundInfo.compound.id,
+            compoundName: compoundInfo.compound.name,
+            depth: compoundInfo.depth + 1,
+          },
+        ];
+
+        const stratum = await buildStratum(
+          compoundInfo.compound,
+          parentAtoms,
+          parentEdges,
+          breadcrumbs,
+          defaultConfig,
+          llmClient,
+          stratumCache,
+          'default',
+          'file',
+        );
+
+        // Store child compounds
+        for (const compound of stratum.compounds) {
+          compoundStore.set(compound.id, {
+            compound,
+            parentCompoundId: regionId,
+            depth: compoundInfo.depth + 1,
+            stratum,
+          });
+        }
+
+        return { stratum, stale: false };
+      })();
+
+      pendingZooms.set(cacheKey, promise);
+      try {
+        const result = await promise;
+        return reply.status(200).send(result);
+      } finally {
+        pendingZooms.delete(cacheKey);
+      }
+    }
+
+    // --- End Atom-Compound Model ---
 
     if (!orchestrator.getActiveProjectPath()) {
       return reply.status(400).send({
@@ -257,5 +423,37 @@ export function registerZoomRoutes(app: FastifyInstance, orchestrator: Orchestra
       level: subLevel,
       cached: false,
     });
+  });
+
+  // --- Atom-Compound Overview API ---
+  app.get('/api/map/overview', async (request, reply) => {
+    const compounds: Array<{
+      id: string;
+      name: string;
+      parentId: string | null;
+      depth: number;
+      atomCount: number;
+      zoomable: boolean;
+      loaded: boolean;
+    }> = [];
+
+    for (const [id, info] of compoundStore) {
+      // A compound is "loaded" if we've zoomed into it (its children exist in compoundStore)
+      const hasChildren = info.compound.zoomable && [...compoundStore.values()].some(
+        (ci) => ci.parentCompoundId === id,
+      );
+
+      compounds.push({
+        id,
+        name: info.compound.name,
+        parentId: info.parentCompoundId,
+        depth: info.depth,
+        atomCount: info.compound.atomIds.length,
+        zoomable: info.compound.zoomable,
+        loaded: hasChildren,
+      });
+    }
+
+    return reply.status(200).send({ compounds });
   });
 }
