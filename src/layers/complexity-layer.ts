@@ -25,10 +25,24 @@ export class ComplexityLayer implements Layer {
 
     for (const node of graph.nodes) {
       const locs = functionLocs[node.id] ?? [];
-      const raw = locs.length > 0 ? Math.max(...locs) : 0;
+      let raw: number;
+      let label: string;
+
+      if (locs.length > 0) {
+        // Pre-computed function LOC (TS full AST path)
+        raw = Math.max(...locs);
+        label = `${raw} LOC max function`;
+      } else {
+        // Estimate from symbol count — more symbols = more complex
+        const symbolCount = node.symbols.length;
+        const functionCount = node.symbols.filter(s => s.kind === 'function').length;
+        const classCount = node.symbols.filter(s => s.kind === 'class' || s.kind === 'interface').length;
+        raw = symbolCount + functionCount * 2 + classCount * 5;
+        label = `${symbolCount} symbols (${functionCount} functions, ${classCount} types)`;
+      }
+
       const value = Math.min(raw / 200, 1.0);
       const severity = this.getSeverity(raw, threshold);
-      const label = `${raw} LOC max function`;
 
       moduleScores.set(node.id, { value, raw, label, severity });
     }

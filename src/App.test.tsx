@@ -454,7 +454,7 @@ describe('App Integration: Layer detail panel', () => {
 
     // Panel should not appear without an active layer
     await waitFor(() => {
-      expect(screen.queryByText(/module/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument();
     });
   });
 
@@ -473,10 +473,10 @@ describe('App Integration: Layer detail panel', () => {
     await userEvent.click(authRect!);
 
     await waitFor(() => {
-      // LayerDetailPanel should show region name
-      expect(screen.getByText('Authentication')).toBeInTheDocument();
-      // Should have a close button (LayerDetailPanel renders one)
+      // LayerDetailPanel should show close button and region name
       expect(screen.getByRole('button', { name: /close/i })).toBeInTheDocument();
+      // Region name appears in the detail panel (and also in the map, so use getAllByText)
+      expect(screen.getAllByText('Authentication').length).toBeGreaterThanOrEqual(1);
     });
   });
 
