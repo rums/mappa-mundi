@@ -122,6 +122,48 @@ describe('Two-stage clustering pipeline', () => {
     expect(prompt).toContain('adjust');
   });
 
+  it('should merge single-atom components to respect min constraint', () => {
+    // 20 atoms, only a few edges — most are disconnected singletons
+    const atoms = Array.from({ length: 20 }, (_, i) => makeAtom(`src/file${i}.ts`));
+    const edges: ImportEdge[] = [
+      makeEdge('src/file0.ts', 'src/file1.ts'),
+      makeEdge('src/file2.ts', 'src/file3.ts'),
+    ];
+
+    const result = structuralPartition(atoms, edges, { min: 3, max: 7 });
+
+    expect(result).not.toBeNull();
+    if (result) {
+      // No cluster should have fewer than min atoms
+      for (const cluster of result.clusters) {
+        expect(cluster.length).toBeGreaterThanOrEqual(3);
+      }
+      // Should produce 3-7 clusters, not 18 singletons
+      expect(result.clusters.length).toBeGreaterThanOrEqual(3);
+      expect(result.clusters.length).toBeLessThanOrEqual(7);
+      // All atoms assigned
+      expect(result.clusters.flat().sort()).toEqual(atoms.map((a) => a.id).sort());
+    }
+  });
+
+  it('should not produce more clusters than max even with many disconnected components', () => {
+    // 304 atoms simulating the real-world case, very few edges
+    const atoms = Array.from({ length: 50 }, (_, i) => makeAtom(`src/mod${i}.ts`));
+    const edges: ImportEdge[] = [
+      makeEdge('src/mod0.ts', 'src/mod1.ts'),
+      makeEdge('src/mod10.ts', 'src/mod11.ts'),
+    ];
+
+    const result = structuralPartition(atoms, edges, { min: 3, max: 7 });
+
+    expect(result).not.toBeNull();
+    if (result) {
+      expect(result.clusters.length).toBeLessThanOrEqual(7);
+      expect(result.clusters.length).toBeGreaterThanOrEqual(3);
+      expect(result.clusters.flat().sort()).toEqual(atoms.map((a) => a.id).sort());
+    }
+  });
+
   it('should produce generic names for structural-only fallback', () => {
     // When LLM fails and structural partition is used as fallback,
     // compounds should have generic names

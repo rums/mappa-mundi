@@ -90,9 +90,11 @@ export async function buildStratum(
     return stratum;
   }
 
-  // Check cache
+  // Check cache — only use cached result if sourceHash matches AND quality
+  // source is 'llm'. Fallback results (structural/directory/flat) should be
+  // re-attempted so the LLM gets another chance when it's available.
   const cached = cache.get(projectId, parentCompoundId, atomType);
-  if (cached && cached.stratum.sourceHash === currentSourceHash) {
+  if (cached && cached.stratum.sourceHash === currentSourceHash && cached.stratum.quality.source === 'llm') {
     return cached.stratum;
   }
 
@@ -100,8 +102,8 @@ export async function buildStratum(
   let prevClustering: { compounds: Compound[] } | null = null;
   let atomDiff: AtomDiff | null = null;
 
-  if (cached && cached.stratum.sourceHash !== currentSourceHash) {
-    // Check diff size
+  if (cached && cached.stratum.sourceHash !== currentSourceHash && cached.stratum.quality.source === 'llm') {
+    // Only use LLM-quality cached results for differential re-clustering
     const cachedAtomIds = new Set(cached.stratum.compounds.flatMap((c) => c.atomIds));
     const currentAtomIds = new Set(atoms.map((a) => a.id));
 

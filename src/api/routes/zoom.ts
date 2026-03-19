@@ -7,6 +7,34 @@ import { buildStratum, type Stratum, type StratumCache, type LLMClient } from '.
 import type { Compound, Reference } from '../../interpret/atoms/references.js';
 import type { Breadcrumb } from '../../interpret/atoms/prompt.js';
 
+/** Convert a Stratum to a SemanticZoomLevel so the frontend MapRenderer can consume it. */
+function stratumToZoomLevel(stratum: Stratum): SemanticZoomLevel {
+  const label = stratum.breadcrumbs.length > 0
+    ? stratum.breadcrumbs[stratum.breadcrumbs.length - 1].compoundName
+    : 'Project Root';
+
+  const regions: Region[] = stratum.compounds.map((c) => ({
+    id: c.id,
+    name: c.name,
+    moduleCount: c.atomIds.length,
+    loc: c.atomIds.length * 50, // approximate — atoms don't carry LOC yet
+  }));
+
+  const relationships: Relationship[] = stratum.relationships.map((r) => ({
+    sourceId: r.sourceId,
+    targetId: r.targetId,
+    kind: r.kind,
+    edgeCount: r.edgeCount,
+  }));
+
+  return {
+    id: `stratum-${stratum.depth}-${stratum.parentCompoundId ?? 'root'}`,
+    label,
+    regions,
+    relationships,
+  };
+}
+
 function titleCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -221,7 +249,7 @@ export function registerZoomRoutes(app: FastifyInstance, orchestrator: Orchestra
             });
           }
 
-          return { stratum, stale: false };
+          return { stratum, stale: false, level: stratumToZoomLevel(stratum) };
         })();
 
         pendingZooms.set(cacheKey, promise);
@@ -293,7 +321,7 @@ export function registerZoomRoutes(app: FastifyInstance, orchestrator: Orchestra
           });
         }
 
-        return { stratum, stale: false };
+        return { stratum, stale: false, level: stratumToZoomLevel(stratum) };
       })();
 
       pendingZooms.set(cacheKey, promise);
