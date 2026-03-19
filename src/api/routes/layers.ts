@@ -112,6 +112,24 @@ export function registerLayerRoutes(app: FastifyInstance, orchestrator: Orchestr
       }
     }
 
+    // Aggregate module scores to region-level scores using regionModuleMap
+    const regionModuleMap = orchestrator.getRegionModuleMap();
+    const zoomLevel = orchestrator.getLastZoomLevel();
+    if (regionModuleMap && zoomLevel) {
+      for (const region of zoomLevel.regions) {
+        const regionModules = regionModuleMap[region.id] ?? [];
+        const regionScoreList = regionModules
+          .map((m) => moduleScores[m])
+          .filter(Boolean);
+        if (regionScoreList.length > 0) {
+          // Aggregate: max value, worst severity
+          const best = regionScoreList.reduce((a: any, b: any) =>
+            a.value > b.value ? a : b, regionScoreList[0]);
+          moduleScores[region.id] = best;
+        }
+      }
+    }
+
     return reply.status(200).send({
       layerId,
       moduleScores,
