@@ -164,13 +164,19 @@ export function App() {
     if (!scores || !displayData) return undefined;
     const map = new Map<string, LayerScore>();
     for (const region of displayData.regions) {
-      // Region IDs are like "region-src", "region-api", "module-foo"
-      // Module IDs are like "src/scanner.ts", "src/api/server.ts"
+      // First: check if scores has a direct region ID key (LLM layer lenses do this)
+      if (scores[region.id]) {
+        map.set(region.id, scores[region.id] as LayerScore);
+        continue;
+      }
+
+      // Second: match module paths to region by path prefix
       const prefix = region.id.replace(/^region-/, '').replace(/-files$/, '');
       const matching: LayerScore[] = [];
       for (const [moduleId, score] of Object.entries(scores)) {
+        // Skip region-ID keys (already handled above)
+        if (moduleId.startsWith('region-')) continue;
         const parts = moduleId.split('/');
-        // Check if any path segment matches the region name
         if (parts.some(p => p.toLowerCase() === prefix.toLowerCase()) ||
             moduleId.toLowerCase().startsWith(prefix.toLowerCase() + '/') ||
             moduleId.toLowerCase().startsWith(prefix.toLowerCase())) {
@@ -178,7 +184,6 @@ export function App() {
         }
       }
       if (matching.length > 0) {
-        // Aggregate: use max value and worst severity
         const maxScore = matching.reduce((best, s) =>
           s.value > best.value ? s : best, matching[0]);
         map.set(region.id, maxScore);
