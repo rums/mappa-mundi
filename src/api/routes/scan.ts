@@ -21,9 +21,11 @@ export function runScanPipeline(orchestrator: Orchestrator, jobId: string, proje
       let zoomLevel;
       if (llm) {
         try {
+          console.log('[scan] Attempting LLM clustering...');
           zoomLevel = await clusterTopLevel(graph, dirTree, llm);
-        } catch {
-          // LLM failed — use fallback
+          console.log('[scan] LLM clustering produced', zoomLevel.regions.length, 'regions');
+        } catch (llmErr: any) {
+          console.log('[scan] LLM clustering failed:', llmErr?.message || llmErr);
           zoomLevel = buildFallback(graph, dirTree);
         }
       } else {

@@ -11,7 +11,17 @@ const execFileAsync = promisify(execFile);
 export function createClaudeCodeClient(): LLMClient {
   return {
     async complete(prompt: string, responseSchema: object): Promise<LLMResponse> {
-      const fullPrompt = `You are a code analysis assistant. Respond with valid JSON only, no markdown fences.\n\n${prompt}`;
+      const schemaHint = JSON.stringify(responseSchema, null, 2);
+      const fullPrompt = `You are a code analysis assistant. Analyze the following codebase and group ALL modules into 3-7 cohesive semantic regions based on their purpose and responsibilities. Each module must appear in exactly one region.
+
+Respond with valid JSON only, no markdown fences. Use this exact schema:
+${schemaHint}
+
+Each region needs: "name" (short descriptive name), "summary" (one sentence), "modules" (array of full module paths from the data below).
+
+IMPORTANT: The "modules" array must contain the exact module ID paths (e.g., "src/scanner.ts"), NOT directory names.
+
+${prompt}`;
 
       const { stdout } = await execFileAsync('claude', [
         '--print',
