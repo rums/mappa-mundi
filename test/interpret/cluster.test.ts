@@ -133,8 +133,8 @@ describe('Clustering: output', () => {
 
     const result = await clusterTopLevel(graph, dirTree, llm);
 
-    expect(result.regions.length).toBeGreaterThanOrEqual(3);
-    expect(result.regions.length).toBeLessThanOrEqual(7);
+    expect(result.zoomLevel.regions.length).toBeGreaterThanOrEqual(3);
+    expect(result.zoomLevel.regions.length).toBeLessThanOrEqual(7);
   });
 
   it('should produce regions with non-empty name and summary', async () => {
@@ -148,7 +148,7 @@ describe('Clustering: output', () => {
 
     const result = await clusterTopLevel(graph, dirTree, llm);
 
-    for (const region of result.regions) {
+    for (const region of result.zoomLevel.regions) {
       expect(region.name).toBeTruthy();
       expect(region.name.length).toBeGreaterThan(0);
     }
@@ -166,7 +166,7 @@ describe('Clustering: output', () => {
 
     const result = await clusterTopLevel(graph, dirTree, llm);
 
-    expect(result.regions.length).toBeGreaterThanOrEqual(1);
+    expect(result.zoomLevel.regions.length).toBeGreaterThanOrEqual(1);
   });
 
   it('should produce at most 7 regions for a project with 20+ directories', async () => {
@@ -189,7 +189,7 @@ describe('Clustering: output', () => {
 
     const result = await clusterTopLevel(graph, dirTree, llm);
 
-    expect(result.regions.length).toBeLessThanOrEqual(7);
+    expect(result.zoomLevel.regions.length).toBeLessThanOrEqual(7);
   });
 });
 
@@ -210,13 +210,13 @@ describe('Clustering: module coverage', () => {
     const allModuleIds = graph.nodes.map(n => n.id);
     // Collect all modules from all regions
     const assignedModules: string[] = [];
-    for (const region of result.regions) {
+    for (const region of result.zoomLevel.regions) {
       // Region should expose module IDs — exact shape depends on implementation
       // but the SemanticZoomLevel.Region should have module list
       expect(region.moduleCount).toBeGreaterThan(0);
     }
     // Total module count across regions should equal input module count
-    const totalModules = result.regions.reduce((sum, r) => sum + r.moduleCount, 0);
+    const totalModules = result.zoomLevel.regions.reduce((sum, r) => sum + r.moduleCount, 0);
     expect(totalModules).toBe(allModuleIds.length);
   });
 
@@ -233,7 +233,7 @@ describe('Clustering: module coverage', () => {
     const result = await clusterTopLevel(graph, dirTree, llm);
 
     // All 8 modules must be accounted for, even though LLM only assigned 7
-    const totalModules = result.regions.reduce((sum, r) => sum + r.moduleCount, 0);
+    const totalModules = result.zoomLevel.regions.reduce((sum, r) => sum + r.moduleCount, 0);
     expect(totalModules).toBe(8);
   });
 
@@ -250,7 +250,7 @@ describe('Clustering: module coverage', () => {
     const result = await clusterTopLevel(graph, dirTree, llm);
 
     // Still 8 unique modules, not 9
-    const totalModules = result.regions.reduce((sum, r) => sum + r.moduleCount, 0);
+    const totalModules = result.zoomLevel.regions.reduce((sum, r) => sum + r.moduleCount, 0);
     expect(totalModules).toBe(8);
   });
 });
@@ -269,13 +269,13 @@ describe('Clustering: schema conformance', () => {
 
     const result = await clusterTopLevel(graph, dirTree, llm);
 
-    // Structural checks for SemanticZoomLevel
-    expect(result).toHaveProperty('id');
-    expect(result).toHaveProperty('label');
-    expect(result).toHaveProperty('regions');
-    expect(result).toHaveProperty('relationships');
-    expect(Array.isArray(result.regions)).toBe(true);
-    expect(Array.isArray(result.relationships)).toBe(true);
+    // Structural checks for ClusterResult
+    expect(result).toHaveProperty('zoomLevel');
+    expect(result).toHaveProperty('regionModuleMap');
+    expect(result.zoomLevel).toHaveProperty('id');
+    expect(result.zoomLevel).toHaveProperty('label');
+    expect(Array.isArray(result.zoomLevel.regions)).toBe(true);
+    expect(Array.isArray(result.zoomLevel.relationships)).toBe(true);
   });
 
   it('should have an id and label on the zoom level', async () => {
@@ -289,10 +289,10 @@ describe('Clustering: schema conformance', () => {
 
     const result = await clusterTopLevel(graph, dirTree, llm);
 
-    expect(typeof result.id).toBe('string');
-    expect(result.id.length).toBeGreaterThan(0);
-    expect(typeof result.label).toBe('string');
-    expect(result.label.length).toBeGreaterThan(0);
+    expect(typeof result.zoomLevel.id).toBe('string');
+    expect(result.zoomLevel.id.length).toBeGreaterThan(0);
+    expect(typeof result.zoomLevel.label).toBe('string');
+    expect(result.zoomLevel.label.length).toBeGreaterThan(0);
   });
 
   it('should have valid region objects with id, name, moduleCount, and loc', async () => {
@@ -306,7 +306,7 @@ describe('Clustering: schema conformance', () => {
 
     const result = await clusterTopLevel(graph, dirTree, llm);
 
-    for (const region of result.regions) {
+    for (const region of result.zoomLevel.regions) {
       expect(typeof region.id).toBe('string');
       expect(region.id.length).toBeGreaterThan(0);
       expect(typeof region.name).toBe('string');
@@ -329,7 +329,7 @@ describe('Clustering: schema conformance', () => {
 
     const result = await clusterTopLevel(graph, dirTree, llm);
 
-    for (const rel of result.relationships) {
+    for (const rel of result.zoomLevel.relationships) {
       expect(typeof rel.sourceId).toBe('string');
       expect(typeof rel.targetId).toBe('string');
       expect(typeof rel.kind).toBe('string');
@@ -367,9 +367,9 @@ describe('Clustering: fallback behavior', () => {
     const result = await clusterTopLevel(graph, dirTree, llm, config);
 
     // Should still return a valid result (fallback)
-    expect(result.regions.length).toBeGreaterThanOrEqual(1);
+    expect(result.zoomLevel.regions.length).toBeGreaterThanOrEqual(1);
     // Fallback: one region per top-level directory
-    expect(result.regions.length).toBe(4); // auth, api, db, ui
+    expect(result.zoomLevel.regions.length).toBe(4); // auth, api, db, ui
   });
 
   it('should fall back after LLM returns malformed JSON', async () => {
@@ -378,7 +378,7 @@ describe('Clustering: fallback behavior', () => {
 
     const result = await clusterTopLevel(graph, dirTree, llm);
 
-    expect(result.regions.length).toBe(4);
+    expect(result.zoomLevel.regions.length).toBe(4);
   });
 
   it('should fall back after LLM returns wrong schema', async () => {
@@ -387,7 +387,7 @@ describe('Clustering: fallback behavior', () => {
 
     const result = await clusterTopLevel(graph, dirTree, llm);
 
-    expect(result.regions.length).toBe(4);
+    expect(result.zoomLevel.regions.length).toBe(4);
   });
 
   it('should produce fallback regions with name = directory basename (title-cased)', async () => {
@@ -396,7 +396,7 @@ describe('Clustering: fallback behavior', () => {
 
     const result = await clusterTopLevel(graph, dirTree, llm);
 
-    const regionNames = result.regions.map(r => r.name).sort();
+    const regionNames = result.zoomLevel.regions.map(r => r.name).sort();
     expect(regionNames).toEqual(['Api', 'Auth', 'Db', 'Ui']);
   });
 
@@ -406,14 +406,13 @@ describe('Clustering: fallback behavior', () => {
 
     const result = await clusterTopLevel(graph, dirTree, llm);
 
-    expect(result).toHaveProperty('id');
-    expect(result).toHaveProperty('label');
-    expect(result).toHaveProperty('regions');
-    expect(result).toHaveProperty('relationships');
-    expect(Array.isArray(result.regions)).toBe(true);
-    expect(Array.isArray(result.relationships)).toBe(true);
+    expect(result).toHaveProperty('zoomLevel');
+    expect(result.zoomLevel).toHaveProperty('id');
+    expect(result.zoomLevel).toHaveProperty('label');
+    expect(Array.isArray(result.zoomLevel.regions)).toBe(true);
+    expect(Array.isArray(result.zoomLevel.relationships)).toBe(true);
 
-    for (const region of result.regions) {
+    for (const region of result.zoomLevel.regions) {
       expect(typeof region.id).toBe('string');
       expect(typeof region.name).toBe('string');
       expect(typeof region.moduleCount).toBe('number');
@@ -427,7 +426,7 @@ describe('Clustering: fallback behavior', () => {
 
     const result = await clusterTopLevel(graph, dirTree, llm);
 
-    const totalModules = result.regions.reduce((sum, r) => sum + r.moduleCount, 0);
+    const totalModules = result.zoomLevel.regions.reduce((sum, r) => sum + r.moduleCount, 0);
     expect(totalModules).toBe(graph.nodes.length);
   });
 });
@@ -461,7 +460,7 @@ describe('Clustering: retry behavior', () => {
 
     const result = await clusterTopLevel(graph, dirTree, llm);
 
-    expect(result.regions.length).toBe(4);
+    expect(result.zoomLevel.regions.length).toBe(4);
     expect(llm.complete).toHaveBeenCalledTimes(2);
   });
 
@@ -475,7 +474,7 @@ describe('Clustering: retry behavior', () => {
     // Should have attempted maxRetries + 1 calls (initial + retries)
     expect(llm.complete).toHaveBeenCalledTimes(4); // 1 initial + 3 retries
     // Should still return valid fallback result
-    expect(result.regions.length).toBe(4);
+    expect(result.zoomLevel.regions.length).toBe(4);
   });
 
   it('should call LLM with correct number of retries from config', async () => {

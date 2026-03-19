@@ -57,12 +57,17 @@ function estimateLoc(
   return totalLoc;
 }
 
+export interface ClusterResult {
+  zoomLevel: SemanticZoomLevel;
+  regionModuleMap: Record<string, string[]>;
+}
+
 export async function clusterTopLevel(
   graph: DependencyGraph,
   dirTree: DirectoryNode,
   llm: LLMClient,
   config?: Partial<ClusteringConfig>,
-): Promise<SemanticZoomLevel> {
+): Promise<ClusterResult> {
   const maxRetries = config?.maxRetries ?? 3;
   const maxPromptTokens = config?.maxPromptTokens;
 
@@ -118,10 +123,13 @@ export async function clusterTopLevel(
       const relationships = deriveRelationships(graph.edges, regionModuleMap);
 
       return {
-        id: generateId(),
-        label: 'Top Level',
-        regions,
-        relationships,
+        zoomLevel: {
+          id: generateId(),
+          label: 'Top Level',
+          regions,
+          relationships,
+        },
+        regionModuleMap,
       };
     } catch {
       // Network error or other — retry
@@ -130,5 +138,5 @@ export async function clusterTopLevel(
   }
 
   // All retries exhausted — use fallback
-  return buildFallback(graph, dirTree);
+  return { zoomLevel: buildFallback(graph, dirTree), regionModuleMap: {} };
 }

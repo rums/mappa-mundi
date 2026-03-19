@@ -20,10 +20,14 @@ export function runScanPipeline(orchestrator: Orchestrator, jobId: string, proje
       // Try LLM-powered clustering, fall back to directory-based grouping
       const llm = createLLMClient();
       let zoomLevel;
+      let regionModuleMap: Record<string, string[]> = {};
+
       if (llm) {
         try {
           console.log('[scan] Attempting LLM clustering...');
-          zoomLevel = await clusterTopLevel(graph, dirTree, llm);
+          const result = await clusterTopLevel(graph, dirTree, llm);
+          zoomLevel = result.zoomLevel;
+          regionModuleMap = result.regionModuleMap;
           console.log('[scan] LLM clustering produced', zoomLevel.regions.length, 'regions');
         } catch (llmErr: any) {
           console.log('[scan] LLM clustering failed:', llmErr?.message || llmErr);
@@ -33,44 +37,17 @@ export function runScanPipeline(orchestrator: Orchestrator, jobId: string, proje
         zoomLevel = buildFallback(graph, dirTree);
       }
 
-      // Build region → module map for zoom support
-      // For directory-based regions, match by directory path prefix
-      // For LLM-clustered regions, we reconstruct from directory names
-      const regionModuleMap: Record<string, string[]> = {};
-      const allModuleIds = graph.nodes.map((n) => n.id);
-      const assigned = new Set<string>();
-
-      for (const region of zoomLevel.regions) {
-        // Try to find a matching directory in dirTree
-        const regionName = region.name.toLowerCase();
-        const matchingChild = dirTree.children.find(
-          (c) => c.name.toLowerCase() === regionName,
-        );
-        if (matchingChild) {
-          const dirPath = matchingChild.path.endsWith('/') ? matchingChild.path : matchingChild.path + '/';
-          const modules = allModuleIds.filter((id) => id.startsWith(dirPath));
-          regionModuleMap[region.id] = modules;
-          for (const m of modules) assigned.add(m);
-        }
-      }
-      // Any unassigned modules go into their closest region match
-      const unassigned = allModuleIds.filter((id) => !assigned.has(id));
-      if (unassigned.length > 0) {
-        // Try to match by region name appearing in module path
-        for (const moduleId of unassigned) {
-          let matched = false;
-          for (const region of zoomLevel.regions) {
-            const regionName = region.name.toLowerCase().replace(/\s+/g, '-');
-            if (moduleId.toLowerCase().includes(regionName)) {
-              (regionModuleMap[region.id] ??= []).push(moduleId);
-              matched = true;
-              break;
-            }
-          }
-          // If still unmatched, put in first region
-          if (!matched && zoomLevel.regions.length > 0) {
-            const firstId = zoomLevel.regions[zoomLevel.regions.length - 1].id;
-            (regionModuleMap[firstId] ??= []).push(moduleId);
+      // For fallback (directory-based), build the module map from dir tree
+      if (Object.keys(regionModuleMap).length === 0) {
+        const allModuleIds = graph.nodes.map((n) => n.id);
+        for (const region of zoomLevel.regions) {
+          const regionName = region.name.toLowerCase();
+          const matchingChild = dirTree.children.find(
+            (c) => c.name.toLowerCase() === regionName,
+          );
+          if (matchingChild) {
+            const dirPath = matchingChild.path.endsWith('/') ? matchingChild.path : matchingChild.path + '/';
+            regionModuleMap[region.id] = allModuleIds.filter((id) => id.startsWith(dirPath));
           }
         }
       }
