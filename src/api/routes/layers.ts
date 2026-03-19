@@ -6,7 +6,36 @@ import { GitStalenessLayer } from '../../layers/staleness-layer.js';
 import { TestCoverageLayer } from '../../layers/coverage-layer.js';
 import type { LensStore } from '../../lenses/store.js';
 import { evaluateLayerLens } from '../../lenses/layer-evaluator.js';
-import { createLLMClient } from '../llm-client.js';
+import { createFastLLMClient } from '../llm-client.js';
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+import { createHash } from 'crypto';
+
+const LAYER_CACHE_DIR = join(homedir(), '.mappa-mundi', 'layer-cache');
+
+function layerCacheKey(layerId: string, projectPath: string): string {
+  const hash = createHash('sha256').update(`${layerId}:${projectPath}`).digest('hex').slice(0, 16);
+  return `${layerId.replace(/[^a-z0-9-]/gi, '_')}-${hash}.json`;
+}
+
+function getCachedLayerScores(layerId: string, projectPath: string): Record<string, any> | null {
+  try {
+    const file = join(LAYER_CACHE_DIR, layerCacheKey(layerId, projectPath));
+    if (existsSync(file)) {
+      return JSON.parse(readFileSync(file, 'utf-8'));
+    }
+  } catch {}
+  return null;
+}
+
+function cacheLayerScores(layerId: string, projectPath: string, scores: Record<string, any>): void {
+  try {
+    mkdirSync(LAYER_CACHE_DIR, { recursive: true });
+    const file = join(LAYER_CACHE_DIR, layerCacheKey(layerId, projectPath));
+    writeFileSync(file, JSON.stringify(scores));
+  } catch {}
+}
 
 export function createLayerRegistry(): LayerRegistry {
   const registry = new LayerRegistry();
@@ -45,12 +74,21 @@ export function registerLayerRoutes(app: FastifyInstance, orchestrator: Orchestr
     if (lens && lens.type === 'layer') {
       const zoomLevel = orchestrator.getLastZoomLevel();
       const regionModuleMap = orchestrator.getRegionModuleMap();
+      const projectPath = orchestrator.getActiveProjectPath() || 'unknown';
 
       if (!zoomLevel) {
         return reply.status(200).send({ layerId, moduleScores: {} });
       }
 
-      const llm = createLLMClient();
+      // Check cache first
+      const cached = getCachedLayerScores(layerId, projectPath);
+      if (cached) {
+        console.log(`[layers] Cache hit for ${layerId}`);
+        return reply.status(200).send({ layerId, moduleScores: cached });
+      }
+
+      // Use haiku for fast layer evaluation
+      const llm = createFastLLMClient();
       if (!llm) {
         return reply.status(503).send({
           error: { code: 'LLM_UNAVAILABLE', message: 'LLM is not available for layer lens evaluation' },
@@ -58,9 +96,14 @@ export function registerLayerRoutes(app: FastifyInstance, orchestrator: Orchestr
       }
 
       try {
+        console.log(`[layers] Evaluating ${layerId} with haiku...`);
         const result = await evaluateLayerLens(lens.prompt, zoomLevel, regionModuleMap ?? {}, llm);
+        // Cache the result
+        cacheLayerScores(layerId, projectPath, result.moduleScores);
+        console.log(`[layers] Cached ${layerId} (${Object.keys(result.moduleScores).length} scores)`);
         return reply.status(200).send({ layerId, moduleScores: result.moduleScores });
       } catch (err: any) {
+        console.log(`[layers] ${layerId} failed:`, err?.message);
         return reply.status(500).send({
           error: { code: 'LENS_EVALUATION_FAILED', message: err?.message || 'Layer lens evaluation failed' },
         });

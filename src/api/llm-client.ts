@@ -3,13 +3,15 @@ import type { LLMClient, LLMResponse } from '../interpret/cluster';
 
 /**
  * Run `claude --print` with the prompt piped via stdin.
- * This avoids OS argument length limits for large prompts.
  */
-function claudePrint(prompt: string, systemPrompt?: string): Promise<string> {
+function claudePrint(prompt: string, systemPrompt?: string, model?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const args = ['--print', '--output-format', 'text'];
     if (systemPrompt) {
       args.push('--system-prompt', systemPrompt);
+    }
+    if (model) {
+      args.push('--model', model);
     }
 
     const child = spawn('claude', args, {
@@ -31,7 +33,6 @@ function claudePrint(prompt: string, systemPrompt?: string): Promise<string> {
       }
     });
 
-    // Pipe prompt via stdin
     child.stdin.write(prompt);
     child.stdin.end();
 
@@ -43,11 +44,19 @@ function claudePrint(prompt: string, systemPrompt?: string): Promise<string> {
   });
 }
 
+function parseClaudeResponse(stdout: string): unknown {
+  let text = stdout.trim();
+  if (text.startsWith('```')) {
+    text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+  }
+  return JSON.parse(text);
+}
+
 /**
  * Creates an LLM client that shells out to `claude --print`.
- * No API key needed — uses whatever auth Claude Code already has.
+ * @param model — optional model override (e.g., 'haiku' for fast/cheap tasks)
  */
-export function createClaudeCodeClient(): LLMClient {
+export function createClaudeCodeClient(model?: string): LLMClient {
   return {
     async complete(prompt: string, responseSchema: object): Promise<LLMResponse> {
       const schemaHint = Object.keys(responseSchema).length > 0
@@ -57,15 +66,8 @@ export function createClaudeCodeClient(): LLMClient {
       const systemPrompt = 'You are a code analysis assistant. Respond with valid JSON only, no markdown fences or explanation.';
       const fullPrompt = `${prompt}${schemaHint}`;
 
-      const stdout = await claudePrint(fullPrompt, systemPrompt);
-
-      // Strip markdown fences if present
-      let text = stdout.trim();
-      if (text.startsWith('```')) {
-        text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-      }
-
-      const content = JSON.parse(text);
+      const stdout = await claudePrint(fullPrompt, systemPrompt, model);
+      const content = parseClaudeResponse(stdout);
 
       return {
         content,
@@ -76,17 +78,28 @@ export function createClaudeCodeClient(): LLMClient {
 }
 
 /**
- * Creates an LLM client. Uses claude --print (no API key needed).
- * Set MAPPA_LLM=off to disable, or MAPPA_LLM=on to enable.
- * Defaults to on if not in test environment.
+ * Creates the default LLM client (for clustering — uses default model).
+ * Set MAPPA_LLM=off to disable.
  */
 export function createLLMClient(): LLMClient | null {
   const env = process.env.MAPPA_LLM;
   if (env === 'off') return null;
 
-  // Skip in test environments unless explicitly enabled
   if (!env && process.env.NODE_ENV === 'test') return null;
   if (!env && process.env.VITEST) return null;
 
   return createClaudeCodeClient();
+}
+
+/**
+ * Creates a fast LLM client using Haiku for layer evaluation.
+ */
+export function createFastLLMClient(): LLMClient | null {
+  const env = process.env.MAPPA_LLM;
+  if (env === 'off') return null;
+
+  if (!env && process.env.NODE_ENV === 'test') return null;
+  if (!env && process.env.VITEST) return null;
+
+  return createClaudeCodeClient('haiku');
 }
