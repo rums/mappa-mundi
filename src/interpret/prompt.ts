@@ -3,6 +3,8 @@ import type { DirectoryNode } from '../directory-tree';
 
 interface PromptOptions {
   maxPromptTokens?: number;
+  /** Compound lens instruction injected before the clustering request. */
+  compoundLensPrompt?: string;
 }
 
 export function buildPrompt(
@@ -55,8 +57,12 @@ export function buildPrompt(
   const edgeSection = buildEdgeSection(crossDirEdges);
   const boundarySection = buildBoundarySection(sortedChildren);
 
+  const lensSection = options?.compoundLensPrompt
+    ? `## Grouping Lens\n${options.compoundLensPrompt}`
+    : '';
+
   if (!maxTokens) {
-    return [dirSection, symbolSection, edgeSection, boundarySection]
+    return [lensSection, dirSection, symbolSection, edgeSection, boundarySection]
       .filter(Boolean)
       .join('\n\n');
   }
@@ -64,15 +70,15 @@ export function buildPrompt(
   // Truncation strategy
   const maxChars = maxTokens * 4;
 
-  // Try full prompt first
-  let prompt = [dirSection, symbolSection, edgeSection, boundarySection]
+  // Try full prompt first — lens section is always included
+  let prompt = [lensSection, dirSection, symbolSection, edgeSection, boundarySection]
     .filter(Boolean)
     .join('\n\n');
 
   if (prompt.length <= maxChars) return prompt;
 
   // Remove symbol details first
-  prompt = [dirSection, edgeSection, boundarySection]
+  prompt = [lensSection, dirSection, edgeSection, boundarySection]
     .filter(Boolean)
     .join('\n\n');
 
@@ -88,14 +94,14 @@ export function buildPrompt(
     ? '## Cross-Directory Dependencies\n' + [...uniqueEdges.values()].join('\n')
     : '';
 
-  prompt = [dirSection, compactEdgeSection, boundarySection]
+  prompt = [lensSection, dirSection, compactEdgeSection, boundarySection]
     .filter(Boolean)
     .join('\n\n');
 
   if (prompt.length <= maxChars) return prompt;
 
-  // Last resort: just directory names + boundaries
-  prompt = [dirSection, boundarySection]
+  // Last resort: just directory names + boundaries + lens
+  prompt = [lensSection, dirSection, boundarySection]
     .filter(Boolean)
     .join('\n\n');
 

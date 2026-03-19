@@ -191,7 +191,7 @@ describe('App Integration: Scan → Map pipeline', () => {
     await userEvent.type(input, '/my/project');
     await userEvent.click(scanButton);
 
-    expect(mockScan).toHaveBeenCalledWith('/my/project');
+    expect(mockScan).toHaveBeenCalledWith('/my/project', null);
   });
 
   it('disables the scan button when the path input is empty', () => {

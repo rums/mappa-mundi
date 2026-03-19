@@ -4,6 +4,9 @@ import { LayerRegistry } from '../../layers/registry.js';
 import { ComplexityLayer } from '../../layers/complexity-layer.js';
 import { GitStalenessLayer } from '../../layers/staleness-layer.js';
 import { TestCoverageLayer } from '../../layers/coverage-layer.js';
+import type { LensStore } from '../../lenses/store.js';
+import { evaluateLayerLens } from '../../lenses/layer-evaluator.js';
+import { createLLMClient } from '../llm-client.js';
 
 export function createLayerRegistry(): LayerRegistry {
   const registry = new LayerRegistry();
@@ -13,20 +16,56 @@ export function createLayerRegistry(): LayerRegistry {
   return registry;
 }
 
-export function registerLayerRoutes(app: FastifyInstance, orchestrator: Orchestrator, registry: LayerRegistry): void {
+export function registerLayerRoutes(app: FastifyInstance, orchestrator: Orchestrator, registry: LayerRegistry, lensStore?: LensStore): void {
   app.get('/api/layers', async (_request, reply) => {
-    const layers = registry.list().map(l => ({
+    const computedLayers = registry.list().map(l => ({
       id: l.id,
       name: l.name,
       description: l.description,
+      source: 'computed' as const,
     }));
 
-    return reply.status(200).send({ layers });
+    // Include layer lenses
+    const lensLayers = (lensStore?.list('layer') ?? []).map(l => ({
+      id: l.id,
+      name: l.name,
+      description: l.prompt.slice(0, 100) + (l.prompt.length > 100 ? '...' : ''),
+      source: 'lens' as const,
+    }));
+
+    return reply.status(200).send({ layers: [...computedLayers, ...lensLayers] });
   });
 
   app.get('/api/layers/:layerId', async (request, reply) => {
     const { layerId } = request.params as { layerId: string };
     const { regionId } = request.query as { regionId?: string };
+
+    // Check if this is a layer lens (LLM-powered)
+    const lens = lensStore?.get(layerId);
+    if (lens && lens.type === 'layer') {
+      const zoomLevel = orchestrator.getLastZoomLevel();
+      const regionModuleMap = orchestrator.getRegionModuleMap();
+
+      if (!zoomLevel) {
+        return reply.status(200).send({ layerId, moduleScores: {} });
+      }
+
+      const llm = createLLMClient();
+      if (!llm) {
+        return reply.status(503).send({
+          error: { code: 'LLM_UNAVAILABLE', message: 'LLM is not available for layer lens evaluation' },
+        });
+      }
+
+      try {
+        const result = await evaluateLayerLens(lens.prompt, zoomLevel, regionModuleMap ?? {}, llm);
+        return reply.status(200).send({ layerId, moduleScores: result.moduleScores });
+      } catch (err: any) {
+        return reply.status(500).send({
+          error: { code: 'LENS_EVALUATION_FAILED', message: err?.message || 'Layer lens evaluation failed' },
+        });
+      }
+    }
 
     const layer = registry.get(layerId);
     if (!layer) {

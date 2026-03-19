@@ -2,10 +2,12 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useScan } from './hooks/useScan';
 import { useZoomLevel } from './hooks/useZoomLevel';
 import { useLayers } from './hooks/useLayers';
+import { useLenses } from './hooks/useLenses';
 import { useSearch } from './hooks/useSearch';
 import { MapRenderer } from './components/MapRenderer';
 import { LayerPicker } from './components/LayerPicker';
 import { LayerDetailPanel } from './components/LayerDetailPanel';
+import { LensPicker } from './components/LensPicker';
 import type { ColorScale } from './utils/colorScale';
 import type { SemanticZoomLevel } from './types';
 import type { LayerScore } from './layers/types';
@@ -32,8 +34,10 @@ export function App() {
   const [searchDismissed, setSearchDismissed] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
+  const [activeCompoundLensId, setActiveCompoundLensId] = useState<string | null>(null);
 
   const { scan, refresh, status, data: scanData, error, loadDirect } = useScan();
+  const { compoundLenses, layerLenses, createLens, deleteLens } = useLenses();
 
   // Fetch saved projects on mount and after scan completes
   const fetchProjects = useCallback(() => {
@@ -72,9 +76,9 @@ export function App() {
 
   const handleScan = useCallback(() => {
     if (path.trim()) {
-      scan(path);
+      scan(path, activeCompoundLensId);
     }
-  }, [path, scan]);
+  }, [path, scan, activeCompoundLensId]);
 
   const handleRegionSelect = useCallback((regionId: string) => {
     setSelectedRegionId(regionId);
@@ -200,6 +204,15 @@ export function App() {
         <button onClick={handleScan} disabled={!path.trim() || status === 'scanning'}>
           {status === 'scanning' ? 'Scanning...' : 'Scan'}
         </button>
+
+        <LensPicker
+          compoundLenses={compoundLenses}
+          layerLenses={layerLenses}
+          activeCompoundLensId={activeCompoundLensId}
+          onSelectCompoundLens={setActiveCompoundLensId}
+          onCreateLens={(name, type, prompt) => createLens(name, type, prompt)}
+          onDeleteLens={deleteLens}
+        />
 
         {savedProjects.length > 0 && (
           <select
