@@ -66,7 +66,7 @@ export function App() {
     } catch {}
   }, [loadDirect]);
   const currentZoomRegionId = zoomStack.length > 0 ? zoomStack[zoomStack.length - 1].regionId : null;
-  const { data: zoomData, loading: zoomLoading } = useZoomLevel(currentZoomRegionId);
+  const { data: zoomData, moduleMap: zoomModuleMap, loading: zoomLoading } = useZoomLevel(currentZoomRegionId);
   const { layers, activeLayerId, activateLayer, deactivateLayer, scores, scoresLoading } = useLayers();
   const { setQuery, results, error: searchError } = useSearch();
 
@@ -161,22 +161,38 @@ export function App() {
   const activeLayers = activeLayerId ? [activeLayerId] : [];
 
   // Aggregate module scores to region scores for the map overlay
+  // Use the zoom-level module map when available for accurate sub-region matching
+  const currentModuleMap = isZoomed ? zoomModuleMap : null;
+
   const regionScores = useMemo(() => {
     if (!scores || !displayData) return undefined;
     const map = new Map<string, LayerScore>();
     for (const region of displayData.regions) {
-      // First: check if scores has a direct region ID key (LLM layer lenses do this)
+      // First: check if scores has a direct region ID key
       if (scores[region.id]) {
         map.set(region.id, scores[region.id] as LayerScore);
         continue;
       }
 
-      // Second: match module paths to region by path prefix
+      // Second: if we have a module map for this zoom level, use it for precise matching
+      if (currentModuleMap && currentModuleMap[region.id]) {
+        const regionModules = currentModuleMap[region.id];
+        const matching = regionModules
+          .map((m: string) => scores[m])
+          .filter(Boolean) as LayerScore[];
+        if (matching.length > 0) {
+          const maxScore = matching.reduce((best, s) =>
+            s.value > best.value ? s : best, matching[0]);
+          map.set(region.id, maxScore);
+          continue;
+        }
+      }
+
+      // Third: fallback path-segment matching
       const prefix = region.id.replace(/^region-/, '').replace(/-files$/, '');
       const matching: LayerScore[] = [];
       for (const [moduleId, score] of Object.entries(scores)) {
-        // Skip region-ID keys (already handled above)
-        if (moduleId.startsWith('region-')) continue;
+        if (moduleId.startsWith('region-') || moduleId.startsWith('module-')) continue;
         const parts = moduleId.split('/');
         if (parts.some(p => p.toLowerCase() === prefix.toLowerCase()) ||
             moduleId.toLowerCase().startsWith(prefix.toLowerCase() + '/') ||
@@ -191,7 +207,7 @@ export function App() {
       }
     }
     return map.size > 0 ? map : undefined;
-  }, [scores, displayData]);
+  }, [scores, displayData, currentModuleMap]);
 
   // Show search results dropdown
   const showSearchDropdown = results.length > 0 && !searchDismissed;

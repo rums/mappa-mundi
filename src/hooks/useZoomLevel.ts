@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react';
 
 export function useZoomLevel(regionId: string | null) {
   const [data, setData] = useState<any | null>(null);
+  const [moduleMap, setModuleMap] = useState<Record<string, string[]> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<any | null>(null);
 
   useEffect(() => {
     if (regionId === null) {
       setData(null);
+      setModuleMap(null);
       setLoading(false);
       setError(null);
       return;
@@ -25,6 +27,7 @@ export function useZoomLevel(regionId: string | null) {
         const json = await res.json();
         if (!controller.signal.aborted) {
           setData(json.level);
+          setModuleMap(json.regionModuleMap ?? null);
           setLoading(false);
         }
       })
@@ -40,5 +43,5 @@ export function useZoomLevel(regionId: string | null) {
     };
   }, [regionId]);
 
-  return { data, loading, error };
+  return { data, moduleMap, loading, error };
 }

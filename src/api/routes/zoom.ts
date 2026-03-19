@@ -491,6 +491,7 @@ export function registerZoomRoutes(app: FastifyInstance, orchestrator: Orchestra
 
     return reply.status(200).send({
       level: result.level,
+      regionModuleMap: result.moduleMap,
       cached: false,
     });
   });
