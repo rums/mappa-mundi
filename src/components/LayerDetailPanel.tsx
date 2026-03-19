@@ -20,7 +20,10 @@ export function LayerDetailPanel({
   colorScale,
   onClose,
 }: LayerDetailPanelProps) {
-  const entries = Array.from(moduleScores.entries());
+  // Handle both Map and plain object formats
+  const entries: Array<[string, any]> = moduleScores instanceof Map
+    ? Array.from(moduleScores.entries())
+    : Object.entries(moduleScores);
 
   return (
     <div>
