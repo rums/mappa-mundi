@@ -76,6 +76,21 @@ describe('GET /api/zoom/:compoundId — Atom-Compound Model', () => {
         expect(compound).toHaveProperty('atomIds');
         expect(compound).toHaveProperty('references');
       }
+
+      // Frontend adapter: response should include a `level` field
+      // matching the SemanticZoomLevel shape for MapRenderer compatibility
+      expect(body).toHaveProperty('level');
+      expect(body.level).toHaveProperty('regions');
+      expect(body.level).toHaveProperty('relationships');
+      expect(body.level).toHaveProperty('label');
+      expect(body.level.regions.length).toBe(body.stratum.compounds.length);
+      // Each region should map from a compound
+      for (const region of body.level.regions) {
+        expect(region).toHaveProperty('id');
+        expect(region).toHaveProperty('name');
+        expect(region).toHaveProperty('moduleCount');
+        expect(region).toHaveProperty('loc');
+      }
     }
   });
 

@@ -54,36 +54,97 @@ export function structuralPartition(
   }
 
   // Split large components to stay within target range
-  const clusters: string[][] = [];
+  const rawClusters: string[][] = [];
   for (const component of components) {
     if (component.length <= targetRange.max) {
-      clusters.push(component);
+      rawClusters.push(component);
     } else {
       // Split into chunks of targetRange.max
       for (let i = 0; i < component.length; i += targetRange.max) {
-        clusters.push(component.slice(i, i + targetRange.max));
+        rawClusters.push(component.slice(i, i + targetRange.max));
       }
     }
   }
 
-  // Merge tiny clusters
+  // Merge undersized clusters (< min) into neighbours
+  // Sort so smallest clusters get merged first
+  const sorted = rawClusters
+    .map((c, i) => ({ cluster: c, index: i }))
+    .sort((a, b) => a.cluster.length - b.cluster.length);
+
+  const merged: string[][] = [];
+  const consumed = new Set<number>();
+
+  for (const entry of sorted) {
+    if (consumed.has(entry.index)) continue;
+
+    if (entry.cluster.length >= targetRange.min) {
+      merged.push(entry.cluster);
+      consumed.add(entry.index);
+      continue;
+    }
+
+    // Try to merge this small cluster into the last merged group that has room
+    let placed = false;
+    for (const group of merged) {
+      if (group.length + entry.cluster.length <= targetRange.max) {
+        group.push(...entry.cluster);
+        consumed.add(entry.index);
+        placed = true;
+        break;
+      }
+    }
+
+    if (!placed) {
+      // Start a new group with this small cluster
+      merged.push([...entry.cluster]);
+      consumed.add(entry.index);
+    }
+  }
+
+  // Final pass: if any remaining groups are still undersized, merge them with their smallest neighbour
+  let clusters = merged;
   if (clusters.length >= 2) {
-    return {
-      clusters,
-      algorithm: 'leiden',
-      resolution: 1.0,
-    };
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let i = clusters.length - 1; i >= 0; i--) {
+        if (clusters[i].length >= targetRange.min) continue;
+        // Find the smallest other cluster we can merge into
+        let bestIdx = -1;
+        let bestSize = Infinity;
+        for (let j = 0; j < clusters.length; j++) {
+          if (j === i) continue;
+          const combined = clusters[j].length + clusters[i].length;
+          if (combined <= targetRange.max && clusters[j].length < bestSize) {
+            bestIdx = j;
+            bestSize = clusters[j].length;
+          }
+        }
+        if (bestIdx >= 0) {
+          clusters[bestIdx].push(...clusters[i]);
+          clusters.splice(i, 1);
+          changed = true;
+          break; // restart scan after mutation
+        }
+      }
+    }
   }
 
   // If only one cluster, try to split it
   if (clusters.length === 1 && clusters[0].length >= targetRange.min * 2) {
     const all = clusters[0];
     const mid = Math.ceil(all.length / 2);
-    return {
-      clusters: [all.slice(0, mid), all.slice(mid)],
-      algorithm: 'leiden',
-      resolution: 1.0,
-    };
+    clusters = [all.slice(0, mid), all.slice(mid)];
+  }
+
+  // Final guard: if we still have too many clusters, combine the smallest pairs
+  while (clusters.length > targetRange.max) {
+    // Sort by size ascending and merge the two smallest
+    clusters.sort((a, b) => a.length - b.length);
+    const a = clusters.shift()!;
+    const b = clusters.shift()!;
+    clusters.push([...a, ...b]);
   }
 
   return {
