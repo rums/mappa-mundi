@@ -331,25 +331,27 @@ export function App() {
         </div>
 
         {/* Sidebar */}
-        <div style={{ width: 220, padding: '8px 12px', borderLeft: '1px solid #0f3460', overflowY: 'auto', fontSize: 13 }}>
+        <div style={{ width: 220, padding: '8px 12px', borderLeft: '1px solid #0f3460', overflowY: 'auto', fontSize: 13, flexShrink: 0 }}>
           <LayerPicker
             layers={layers}
             activeLayers={activeLayers}
             onToggleLayer={handleToggleLayer}
           />
-        </div>
 
-        {/* Detail panel */}
-        {showDetailPanel && selectedRegion && activeLayer && scores && (
-          <LayerDetailPanel
-            regionId={selectedRegionId!}
-            regionName={selectedRegion.name}
-            moduleScores={scores}
-            layerName={activeLayer.name}
-            colorScale={DEFAULT_COLOR_SCALE}
-            onClose={handleCloseDetail}
-          />
-        )}
+          {/* Detail panel — inside sidebar */}
+          {showDetailPanel && selectedRegion && activeLayer && scores && (
+            <div style={{ marginTop: 16, borderTop: '1px solid #0f3460', paddingTop: 8 }}>
+              <LayerDetailPanel
+                regionId={selectedRegionId!}
+                regionName={selectedRegion.name}
+                moduleScores={scores}
+                layerName={activeLayer.name}
+                colorScale={DEFAULT_COLOR_SCALE}
+                onClose={handleCloseDetail}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

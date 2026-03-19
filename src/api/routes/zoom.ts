@@ -151,8 +151,8 @@ function buildSubLevel(
       if (rest.length > 0) dirGroups.set('(other)', rest);
     }
 
-    // Build regions from groups
-    if (dirGroups.size > 1 || (dirGroups.size === 1 && !dirGroups.has('(root)'))) {
+    // Build regions from groups — but if only 1 group, show individual files to avoid infinite zoom loop
+    if (dirGroups.size > 1) {
       for (const [dirPath, modules] of dirGroups) {
         const name = dirPath === '(root)' ? `${label} (root files)`
           : dirPath === '(other)' ? `${label} (other)`
