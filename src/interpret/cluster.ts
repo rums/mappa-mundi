@@ -20,6 +20,8 @@ export interface ClusteringConfig {
   maxRegions?: number;
   minRegions?: number;
   maxPromptTokens?: number;
+  /** Compound lens prompt — injected into the LLM clustering prompt. */
+  compoundLensPrompt?: string;
 }
 
 function generateId(): string {
@@ -70,8 +72,13 @@ export async function clusterTopLevel(
 ): Promise<ClusterResult> {
   const maxRetries = config?.maxRetries ?? 3;
   const maxPromptTokens = config?.maxPromptTokens;
+  const compoundLensPrompt = config?.compoundLensPrompt;
 
-  const prompt = buildPrompt(graph, dirTree, maxPromptTokens ? { maxPromptTokens } : undefined);
+  const promptOpts: { maxPromptTokens?: number; compoundLensPrompt?: string } = {};
+  if (maxPromptTokens) promptOpts.maxPromptTokens = maxPromptTokens;
+  if (compoundLensPrompt) promptOpts.compoundLensPrompt = compoundLensPrompt;
+
+  const prompt = buildPrompt(graph, dirTree, Object.keys(promptOpts).length > 0 ? promptOpts : undefined);
   const allModuleIds = graph.nodes.map((n) => n.id);
 
   const responseSchema = {

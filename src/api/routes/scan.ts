@@ -8,8 +8,13 @@ import { buildDirectoryTree } from '../../directory-tree.js';
 import { buildFallback } from '../../interpret/fallback.js';
 import { clusterTopLevel } from '../../interpret/cluster.js';
 import { createLLMClient } from '../llm-client.js';
+import type { LensStore } from '../../lenses/store.js';
 
-export function runScanPipeline(orchestrator: Orchestrator, jobId: string, projectPath: string): void {
+export interface ScanPipelineOptions {
+  compoundLensPrompt?: string;
+}
+
+export function runScanPipeline(orchestrator: Orchestrator, jobId: string, projectPath: string, options?: ScanPipelineOptions): void {
   // Fire and forget - don't await
   const pipeline = async () => {
     try {
@@ -25,7 +30,10 @@ export function runScanPipeline(orchestrator: Orchestrator, jobId: string, proje
       if (llm) {
         try {
           console.log('[scan] Attempting LLM clustering...');
-          const result = await clusterTopLevel(graph, dirTree, llm);
+          const clusterConfig = options?.compoundLensPrompt
+            ? { compoundLensPrompt: options.compoundLensPrompt }
+            : undefined;
+          const result = await clusterTopLevel(graph, dirTree, llm, clusterConfig);
           zoomLevel = result.zoomLevel;
           regionModuleMap = result.regionModuleMap;
           console.log('[scan] LLM clustering produced', zoomLevel.regions.length, 'regions');
@@ -70,9 +78,10 @@ export function runScanPipeline(orchestrator: Orchestrator, jobId: string, proje
   setTimeout(() => { pipeline(); }, 0);
 }
 
-export function registerScanRoutes(app: FastifyInstance, orchestrator: Orchestrator): void {
+export function registerScanRoutes(app: FastifyInstance, orchestrator: Orchestrator, lensStore?: LensStore): void {
   app.post('/api/scan', async (request, reply) => {
     const body = request.body as any;
+    const { compoundLensId } = request.query as { compoundLensId?: string };
 
     if (!body || !body.projectPath) {
       return reply.status(400).send({
@@ -121,11 +130,28 @@ export function registerScanRoutes(app: FastifyInstance, orchestrator: Orchestra
       });
     }
 
+    // Resolve compound lens if specified
+    let scanOptions: ScanPipelineOptions | undefined;
+    if (compoundLensId && lensStore) {
+      const lens = lensStore.get(compoundLensId);
+      if (!lens) {
+        return reply.status(400).send({
+          error: { code: 'LENS_NOT_FOUND', message: `Compound lens not found: ${compoundLensId}` },
+        });
+      }
+      if (lens.type !== 'compound') {
+        return reply.status(400).send({
+          error: { code: 'INVALID_LENS_TYPE', message: 'compoundLensId must reference a compound lens' },
+        });
+      }
+      scanOptions = { compoundLensPrompt: lens.prompt };
+    }
+
     const job = orchestrator.createJob('scan');
     orchestrator.setActiveProjectPath(projectPath);
 
     // Fire and forget the scan pipeline
-    runScanPipeline(orchestrator, job.id, projectPath);
+    runScanPipeline(orchestrator, job.id, projectPath, scanOptions);
 
     return reply.status(202).send({
       jobId: job.id,

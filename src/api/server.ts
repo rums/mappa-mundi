@@ -7,6 +7,8 @@ import { registerZoomRoutes } from './routes/zoom.js';
 import { registerLayerRoutes, createLayerRegistry } from './routes/layers.js';
 import { registerSearchRoutes } from './routes/search.js';
 import { registerRefreshRoutes } from './routes/refresh.js';
+import { registerLensRoutes } from './routes/lenses.js';
+import { LensStore } from '../lenses/store.js';
 
 export async function createApp() {
   const app = Fastify({ pluginTimeout: 0 });
@@ -55,13 +57,15 @@ export async function createApp() {
 
   const orchestrator = new Orchestrator();
   const layerRegistry = createLayerRegistry();
+  const lensStore = new LensStore();
 
-  registerScanRoutes(app, orchestrator);
+  registerScanRoutes(app, orchestrator, lensStore);
   registerJobRoutes(app, orchestrator);
   registerZoomRoutes(app, orchestrator);
-  registerLayerRoutes(app, orchestrator, layerRegistry);
+  registerLayerRoutes(app, orchestrator, layerRegistry, lensStore);
   registerSearchRoutes(app, orchestrator);
   registerRefreshRoutes(app, orchestrator);
+  registerLensRoutes(app, lensStore);
 
   // Project list and load
   app.get('/api/projects', async (_request, reply) => {
