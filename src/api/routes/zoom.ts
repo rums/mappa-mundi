@@ -57,12 +57,17 @@ function findDirNode(node: DirectoryNode, name: string): DirectoryNode | undefin
  * Build a sub-level for a set of modules, grouped by immediate sub-directories
  * of the given directory node.
  */
+interface SubLevelResult {
+  level: SemanticZoomLevel;
+  moduleMap: Record<string, string[]>;
+}
+
 function buildSubLevel(
   label: string,
   regionModules: string[],
   graph: DependencyGraph,
   dirNode: DirectoryNode | undefined,
-): SemanticZoomLevel {
+): SubLevelResult {
   const subRegions: Region[] = [];
   const subRegionModuleMap: Record<string, string[]> = {};
 
@@ -101,30 +106,94 @@ function buildSubLevel(
       });
     }
   } else {
-    // Leaf directory — show individual modules as regions
+    // No dirNode — group by common directory prefixes from file paths
+    const dirGroups = new Map<string, string[]>();
+
     for (const moduleId of regionModules) {
-      const node = graph.nodes.find((n) => n.id === moduleId);
-      const filename = moduleId.split('/').pop() || moduleId;
+      const parts = moduleId.split('/');
+      // Use the first directory segment as the grouping key
+      // e.g., "pkg/eco/rain/collector.go" → "pkg"
+      // For files at root like "main.go" → "(root)"
+      const groupKey = parts.length > 1 ? parts[0] : '(root)';
+      if (!dirGroups.has(groupKey)) dirGroups.set(groupKey, []);
+      dirGroups.get(groupKey)!.push(moduleId);
+    }
 
-      const subRegionId = `module-${filename.replace(/\.[^.]+$/, '')}`;
-      subRegionModuleMap[subRegionId] = [moduleId];
+    // If we only got one group, try going one level deeper
+    if (dirGroups.size === 1 && regionModules.length > 6) {
+      dirGroups.clear();
+      for (const moduleId of regionModules) {
+        const parts = moduleId.split('/');
+        const groupKey = parts.length > 2 ? parts.slice(0, 2).join('/') : parts.length > 1 ? parts[0] : '(root)';
+        if (!dirGroups.has(groupKey)) dirGroups.set(groupKey, []);
+        dirGroups.get(groupKey)!.push(moduleId);
+      }
+    }
 
-      subRegions.push({
-        id: subRegionId,
-        name: filename,
-        moduleCount: 1,
-        loc: node ? node.symbols.length : 0,
-      });
+    // If still just one group or too many small groups, try yet another level
+    if (dirGroups.size === 1 && regionModules.length > 6) {
+      dirGroups.clear();
+      for (const moduleId of regionModules) {
+        const parts = moduleId.split('/');
+        const groupKey = parts.length > 3 ? parts.slice(0, 3).join('/') : parts.length > 2 ? parts.slice(0, 2).join('/') : parts.length > 1 ? parts[0] : '(root)';
+        if (!dirGroups.has(groupKey)) dirGroups.set(groupKey, []);
+        dirGroups.get(groupKey)!.push(moduleId);
+      }
+    }
+
+    // If we have too many groups (>15), consolidate small ones
+    if (dirGroups.size > 15) {
+      const sorted = [...dirGroups.entries()].sort((a, b) => b[1].length - a[1].length);
+      dirGroups.clear();
+      const kept = sorted.slice(0, 12);
+      const rest = sorted.slice(12).flatMap(([, modules]) => modules);
+      for (const [key, modules] of kept) dirGroups.set(key, modules);
+      if (rest.length > 0) dirGroups.set('(other)', rest);
+    }
+
+    // Build regions from groups
+    if (dirGroups.size > 1 || (dirGroups.size === 1 && !dirGroups.has('(root)'))) {
+      for (const [dirPath, modules] of dirGroups) {
+        const name = dirPath === '(root)' ? `${label} (root files)`
+          : dirPath === '(other)' ? `${label} (other)`
+          : titleCase(dirPath.split('/').pop() || dirPath);
+        const subRegionId = `region-${dirPath.replace(/[^a-z0-9]/gi, '-').toLowerCase()}`;
+        subRegionModuleMap[subRegionId] = modules;
+
+        subRegions.push({
+          id: subRegionId,
+          name,
+          moduleCount: modules.length,
+          loc: modules.length * 50, // estimate
+        });
+      }
+    } else {
+      // Truly flat — show individual files (small number)
+      for (const moduleId of regionModules) {
+        const node = graph.nodes.find((n) => n.id === moduleId);
+        const filename = moduleId.split('/').pop() || moduleId;
+        const subRegionId = `module-${filename.replace(/\.[^.]+$/, '')}`;
+        subRegionModuleMap[subRegionId] = [moduleId];
+        subRegions.push({
+          id: subRegionId,
+          name: filename,
+          moduleCount: 1,
+          loc: node ? node.symbols.length : 0,
+        });
+      }
     }
   }
 
   const relationships = deriveSubRelationships(graph, subRegionModuleMap);
 
   return {
-    id: generateId(),
-    label,
-    regions: subRegions,
-    relationships,
+    level: {
+      id: generateId(),
+      label,
+      regions: subRegions,
+      relationships,
+    },
+    moduleMap: subRegionModuleMap,
   };
 }
 
@@ -413,46 +482,15 @@ export function registerZoomRoutes(app: FastifyInstance, orchestrator: Orchestra
     const dirNode = findDirNode(dirTree, dirName) ??
       dirTree.children.find((c) => c.name.toLowerCase() === dirName);
 
-    const subLevel = buildSubLevel(regionLabel, regionModules, graph, dirNode);
+    const result = buildSubLevel(regionLabel, regionModules, graph, dirNode);
 
     // Cache module lists for each sub-region so deeper zooms work
-    for (const subRegion of subLevel.regions) {
-      // Find modules for this sub-region from the buildSubLevel logic
-      if (dirNode) {
-        for (const child of dirNode.children) {
-          const childRegionId = `region-${child.name.toLowerCase()}`;
-          if (subRegion.id === childRegionId) {
-            const childPath = child.path.endsWith('/') ? child.path : child.path + '/';
-            const modules = regionModules.filter((id) => id.startsWith(childPath));
-            regionModuleCache.set(childRegionId, modules);
-          }
-        }
-        // Files region
-        const filesRegionId = `region-${dirNode.name.toLowerCase()}-files`;
-        if (subRegion.id === filesRegionId) {
-          const childPaths = dirNode.children.map(
-            (c) => c.path.endsWith('/') ? c.path : c.path + '/',
-          );
-          const files = regionModules.filter(
-            (id) => !childPaths.some((p) => id.startsWith(p)),
-          );
-          regionModuleCache.set(filesRegionId, files);
-        }
-      }
-      // Module-level regions
-      if (subRegion.id.startsWith('module-')) {
-        const moduleId = regionModules.find((m) => {
-          const filename = m.split('/').pop() || m;
-          return subRegion.id === `module-${filename.replace(/\.[^.]+$/, '')}`;
-        });
-        if (moduleId) {
-          regionModuleCache.set(subRegion.id, [moduleId]);
-        }
-      }
+    for (const [subRegionId, modules] of Object.entries(result.moduleMap)) {
+      regionModuleCache.set(subRegionId, modules);
     }
 
     return reply.status(200).send({
-      level: subLevel,
+      level: result.level,
       cached: false,
     });
   });
