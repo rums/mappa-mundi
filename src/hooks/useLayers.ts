@@ -43,14 +43,18 @@ export function useLayers() {
 
     try {
       const res = await fetch(`/api/layers/${id}`, { signal: controller.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error?.message || `HTTP ${res.status}`);
+      }
       const json = await res.json();
       if (!controller.signal.aborted) {
         setScores(json.moduleScores);
         setScoresLoading(false);
       }
-    } catch {
+    } catch (err: any) {
       if (!controller.signal.aborted) {
+        console.log('[useLayers] Layer fetch failed:', err?.message || err);
         setScores(null);
         setScoresLoading(false);
       }

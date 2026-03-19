@@ -309,9 +309,11 @@ export function App() {
         </div>
       )}
 
-      {/* Layer error */}
-      {activeLayerId && !scores && !scoresLoading && (
-        <div>Layer scores unavailable</div>
+      {/* Layer error — only show if we tried and failed, not during initial render */}
+      {activeLayerId && !scores && !scoresLoading && status === 'completed' && displayData && (
+        <div style={{ padding: '4px 12px', color: '#aa6633', fontSize: 12 }}>
+          Layer scores could not be computed for this view. Try at a different zoom level.
+        </div>
       )}
 
       {/* Main content */}
