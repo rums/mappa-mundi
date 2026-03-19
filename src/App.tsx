@@ -4,7 +4,7 @@ import { useZoomLevel } from './hooks/useZoomLevel';
 import { useLayers } from './hooks/useLayers';
 import { useLenses } from './hooks/useLenses';
 import { useSearch } from './hooks/useSearch';
-import { MapRenderer } from './components/MapRenderer';
+import { CirclePackRenderer } from './components/CirclePackRenderer';
 import { LayerPicker } from './components/LayerPicker';
 import { LayerDetailPanel } from './components/LayerDetailPanel';
 import { LensPicker } from './components/LensPicker';
@@ -315,7 +315,7 @@ export function App() {
           )}
           {(status === 'scanning' || status === 'completed' || isZoomed) && (
             <div aria-hidden="true" style={{ width: '100%', height: '100%' }}>
-              <MapRenderer
+              <CirclePackRenderer
                 data={isLoading ? null : displayData}
                 loading={isLoading}
                 width={Math.max(600, window.innerWidth - 250)}
