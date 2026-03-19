@@ -153,8 +153,12 @@ function createSimpleStratumCache(): StratumCache {
   };
 }
 
-// Simple LLM client that uses directory-based fallback (no actual LLM for now)
-function createFallbackLLMClient(): LLMClient {
+import { createLLMClient } from '../llm-client.js';
+
+function createZoomLLMClient(): LLMClient {
+  const client = createLLMClient();
+  if (client) return client;
+  // If no LLM available, return a stub that forces fallback
   return {
     async complete() {
       throw new Error('LLM not configured');
@@ -168,7 +172,7 @@ export function registerZoomRoutes(app: FastifyInstance, orchestrator: Orchestra
 
   // Atom-compound model state
   const stratumCache = createSimpleStratumCache();
-  const llmClient = createFallbackLLMClient();
+  const llmClient = createZoomLLMClient();
   const compoundStore = new Map<string, { compound: Compound; parentCompoundId: string | null; depth: number; stratum: Stratum }>();
   const pendingZooms = new Map<string, Promise<any>>();
 

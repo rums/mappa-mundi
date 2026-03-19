@@ -1,8 +1,47 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
 import type { LLMClient, LLMResponse } from '../interpret/cluster';
 
-const execFileAsync = promisify(execFile);
+/**
+ * Run `claude --print` with the prompt piped via stdin.
+ * This avoids OS argument length limits for large prompts.
+ */
+function claudePrint(prompt: string, systemPrompt?: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const args = ['--print', '--output-format', 'text'];
+    if (systemPrompt) {
+      args.push('--system-prompt', systemPrompt);
+    }
+
+    const child = spawn('claude', args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`claude exited with code ${code}: ${stderr.slice(0, 500)}`));
+      } else {
+        resolve(stdout);
+      }
+    });
+
+    // Pipe prompt via stdin
+    child.stdin.write(prompt);
+    child.stdin.end();
+
+    // 3 minute timeout
+    setTimeout(() => {
+      child.kill();
+      reject(new Error('claude --print timed out after 180s'));
+    }, 180_000);
+  });
+}
 
 /**
  * Creates an LLM client that shells out to `claude --print`.
@@ -11,26 +50,14 @@ const execFileAsync = promisify(execFile);
 export function createClaudeCodeClient(): LLMClient {
   return {
     async complete(prompt: string, responseSchema: object): Promise<LLMResponse> {
-      const schemaHint = JSON.stringify(responseSchema, null, 2);
-      const fullPrompt = `You are a code analysis assistant. Analyze the following codebase and group ALL modules into 3-7 cohesive semantic regions based on their purpose and responsibilities. Each module must appear in exactly one region.
+      const schemaHint = Object.keys(responseSchema).length > 0
+        ? `\n\nRespond with valid JSON matching this schema:\n${JSON.stringify(responseSchema, null, 2)}`
+        : '';
 
-Respond with valid JSON only, no markdown fences. Use this exact schema:
-${schemaHint}
+      const systemPrompt = 'You are a code analysis assistant. Respond with valid JSON only, no markdown fences or explanation.';
+      const fullPrompt = `${prompt}${schemaHint}`;
 
-Each region needs: "name" (short descriptive name), "summary" (one sentence), "modules" (array of full module paths from the data below).
-
-IMPORTANT: The "modules" array must contain the exact module ID paths (e.g., "src/scanner.ts"), NOT directory names.
-
-${prompt}`;
-
-      const { stdout } = await execFileAsync('claude', [
-        '--print',
-        '--output-format', 'text',
-        fullPrompt,
-      ], {
-        maxBuffer: 1024 * 1024, // 1MB
-        timeout: 120_000,       // 2 min
-      });
+      const stdout = await claudePrint(fullPrompt, systemPrompt);
 
       // Strip markdown fences if present
       let text = stdout.trim();
