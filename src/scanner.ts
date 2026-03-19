@@ -13,7 +13,13 @@ function findTsFiles(dir: string): string[] {
     if (entry === 'node_modules') continue;
 
     const fullPath = resolve(dir, entry);
-    const stat = statSync(fullPath);
+    let stat;
+    try {
+      stat = statSync(fullPath);
+    } catch {
+      // Skip broken symlinks or inaccessible entries
+      continue;
+    }
 
     if (stat.isDirectory()) {
       results.push(...findTsFiles(fullPath));
