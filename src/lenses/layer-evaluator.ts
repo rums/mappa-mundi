@@ -23,21 +23,17 @@ export async function evaluateLayerLens(
     .map((r) => `- "${r.name}" (${r.moduleCount} modules, ${r.loc} LOC)`)
     .join('\n');
 
-  const prompt = `You are analyzing a codebase that has been grouped into these regions:
+  const prompt = `Analyze these code regions and score each one.
 
+Regions:
 ${regionDescriptions}
 
-## Scoring Instruction
-${lensPrompt}
+Scoring criteria: ${lensPrompt}
 
-For each region, provide a score from 0.0 to 1.0 based on the instruction above.
+Score each region from 0.0 (lowest) to 1.0 (highest). Output ONLY a JSON object, nothing else:
+{"scores":[{"regionName":"ExactRegionName","score":0.5,"reason":"brief reason"}]}
 
-Respond with JSON matching this schema:
-{
-  "scores": [
-    { "regionName": "string", "score": 0.0, "reason": "brief explanation" }
-  ]
-}`;
+Output the JSON now:`;
 
   const responseSchema = {
     type: 'object',
