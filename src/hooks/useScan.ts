@@ -34,6 +34,13 @@ export function useScan() {
     const id = setInterval(async () => {
       try {
         const res = await fetch(`/api/jobs/${jobId}`);
+        if (res.status === 404) {
+          // Job expired or not found — treat as failure
+          setState({ status: 'failed', data: null, error: 'Scan job expired. Try again.' });
+          clearInterval(id);
+          intervalRef.current = null;
+          return;
+        }
         const data = await res.json();
 
         if (data.status === 'completed') {

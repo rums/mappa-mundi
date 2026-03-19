@@ -13,6 +13,7 @@ export function runScanPipeline(orchestrator: Orchestrator, jobId: string, proje
   // Fire and forget - don't await
   const pipeline = async () => {
     try {
+      orchestrator.updateJobStatus(jobId, 'running');
       const graph = await scan(projectPath);
       const dirTree = await buildDirectoryTree(projectPath, graph);
 
