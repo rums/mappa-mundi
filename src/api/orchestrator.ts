@@ -1,6 +1,15 @@
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 import type { DependencyGraph, SemanticZoomLevel } from '../types.js';
 import type { DirectoryNode } from '../directory-tree.js';
+
+const STORE_DIR = join(homedir(), '.mappa-mundi', 'projects');
+
+function projectHash(path: string): string {
+  return createHash('sha256').update(path).digest('hex').slice(0, 12);
+}
 
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed';
 export type JobType = 'scan' | 'refresh';
@@ -150,7 +159,7 @@ export class Orchestrator {
   saveProject(): void {
     if (!this.activeProjectPath || !this.lastGraph || !this.lastDirTree || !this.lastZoomLevel) return;
     const name = this.activeProjectPath.split('/').pop() || this.activeProjectPath;
-    this.savedProjects.set(this.activeProjectPath, {
+    const project: SavedProject = {
       path: this.activeProjectPath,
       name,
       scannedAt: new Date().toISOString(),
@@ -160,11 +169,36 @@ export class Orchestrator {
       dirTree: this.lastDirTree,
       zoomLevel: this.lastZoomLevel,
       regionModuleMap: this.regionModuleMap || {},
-    });
+    };
+
+    // Save in memory
+    this.savedProjects.set(this.activeProjectPath, project);
+
+    // Persist to disk
+    try {
+      mkdirSync(STORE_DIR, { recursive: true });
+      const file = join(STORE_DIR, `${projectHash(this.activeProjectPath)}.json`);
+      writeFileSync(file, JSON.stringify(project));
+    } catch (err) {
+      console.log('[orchestrator] Failed to persist project:', err);
+    }
   }
 
   loadProject(path: string): boolean {
-    const saved = this.savedProjects.get(path);
+    // Try memory first
+    let saved = this.savedProjects.get(path);
+
+    // Try disk
+    if (!saved) {
+      try {
+        const file = join(STORE_DIR, `${projectHash(path)}.json`);
+        if (existsSync(file)) {
+          saved = JSON.parse(readFileSync(file, 'utf-8'));
+          if (saved) this.savedProjects.set(path, saved);
+        }
+      } catch {}
+    }
+
     if (!saved) return false;
     this.activeProjectPath = saved.path;
     this.lastGraph = saved.graph;
@@ -175,6 +209,21 @@ export class Orchestrator {
   }
 
   listProjects(): Array<{ path: string; name: string; scannedAt: string; regionCount: number; moduleCount: number }> {
+    // Load from disk into memory if not already loaded
+    try {
+      if (existsSync(STORE_DIR)) {
+        for (const file of readdirSync(STORE_DIR)) {
+          if (!file.endsWith('.json')) continue;
+          try {
+            const data: SavedProject = JSON.parse(readFileSync(join(STORE_DIR, file), 'utf-8'));
+            if (data.path && !this.savedProjects.has(data.path)) {
+              this.savedProjects.set(data.path, data);
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+
     return [...this.savedProjects.values()].map(({ path, name, scannedAt, regionCount, moduleCount }) => ({
       path, name, scannedAt, regionCount, moduleCount,
     }));
