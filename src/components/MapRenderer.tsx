@@ -26,6 +26,22 @@ const DASH_PATTERNS: Record<RelationshipKind, string> = {
   uses: '2,2',
 };
 
+/** Pick a font size that fits within the rect, clamped to reasonable bounds. */
+function fitFontSize(text: string, rectWidth: number, rectHeight: number): number {
+  const maxByWidth = (rectWidth - 8) / (text.length * 0.55);
+  const maxByHeight = (rectHeight - 4) / 1.5;
+  return Math.max(7, Math.min(16, maxByWidth, maxByHeight));
+}
+
+/** Truncate text to fit roughly within a pixel width. */
+function fitText(text: string, rectWidth: number, fontSize: number): string {
+  const charWidth = fontSize * 0.55;
+  const maxChars = Math.floor((rectWidth - 8) / charWidth);
+  if (text.length <= maxChars) return text;
+  if (maxChars < 4) return '';
+  return text.slice(0, maxChars - 1) + '…';
+}
+
 export function MapRenderer({
   data,
   loading,
@@ -41,6 +57,7 @@ export function MapRenderer({
   const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null);
   const selectedId = selectedRegionId !== undefined ? selectedRegionId : internalSelectedId;
   const [zoom, setZoom] = useState({ scale: 1, x: 0, y: 0 });
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const layout = useMemo(() => {
     if (!data || data.regions.length === 0) return [];
@@ -78,7 +95,6 @@ export function MapRenderer({
 
   const handleSvgClick = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
-      // Only deselect if clicking on the SVG itself (not bubbling from a child)
       if (e.target === e.currentTarget) {
         setInternalSelectedId(null);
       }
@@ -143,6 +159,7 @@ export function MapRenderer({
       viewBox={`0 0 ${width} ${height}`}
       onWheel={handleWheel}
       onClick={handleSvgClick}
+      style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}
     >
       <g data-zoom-container="" transform={transform}>
         {/* Edges */}
@@ -162,18 +179,44 @@ export function MapRenderer({
               data-edge=""
               d={`M ${sx},${sy} C ${mx},${sy} ${mx},${ty} ${tx},${ty}`}
               fill="none"
-              stroke="#999"
-              strokeWidth={Math.max(1, Number(rel.edgeCount) || 1)}
+              stroke="rgba(255,255,255,0.3)"
+              strokeWidth={Math.max(1, Math.min(4, Number(rel.edgeCount) || 1))}
               strokeDasharray={dashArray === 'none' ? undefined : dashArray}
+              pointerEvents="none"
             />
           );
         })}
         {/* Regions */}
         {layout.map((rect) => {
           const isSelected = selectedId === rect.regionId;
+          const isHovered = hoveredId === rect.regionId;
           const region = regionMap.get(rect.regionId);
+          const score = regionScores?.get(rect.regionId);
+          const fillColor = regionScores && colorScale
+            ? scoreToColor(score?.value, colorScale)
+            : regionColor(rect.regionId);
+
+          const name = region?.name ?? rect.regionId;
+          const fontSize = fitFontSize(name, rect.width, rect.height);
+          const displayText = fitText(name, rect.width, fontSize);
+          const showLabel = rect.width > 20 && rect.height > 14;
+
+          // Module count subtitle
+          const moduleCount = region?.moduleCount ?? 0;
+          const showCount = rect.height > 30 && rect.width > 50;
+
+          // Tooltip text
+          const tooltipLines = [name];
+          if (moduleCount > 0) tooltipLines.push(`${moduleCount} modules`);
+          if (score) tooltipLines.push(`Score: ${(score.value * 100).toFixed(0)}%`);
+          if (score?.label) tooltipLines.push(score.label);
+
           return (
-            <g key={rect.regionId}>
+            <g
+              key={rect.regionId}
+              onMouseEnter={() => setHoveredId(rect.regionId)}
+              onMouseLeave={() => setHoveredId(null)}
+            >
               <rect
                 data-region-id={rect.regionId}
                 data-selected={isSelected ? 'true' : undefined}
@@ -181,26 +224,46 @@ export function MapRenderer({
                 y={rect.y}
                 width={rect.width}
                 height={rect.height}
-                fill={regionScores && colorScale ? scoreToColor(regionScores.get(rect.regionId)?.value, colorScale) : regionColor(rect.regionId)}
-                stroke={isSelected ? '#000' : '#fff'}
-                strokeWidth={isSelected ? 3 : 1}
-                style={{ cursor: 'pointer' }}
+                fill={fillColor}
+                stroke={isSelected ? '#fff' : isHovered ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.2)'}
+                strokeWidth={isSelected ? 3 : isHovered ? 2 : 0.5}
+                style={{ cursor: 'pointer', transition: 'stroke-width 0.15s' }}
+                rx={2}
                 onClick={(e) => handleRectClick(rect.regionId, e)}
                 onDoubleClick={(e) => handleRectDblClick(rect.regionId, e)}
-              />
-              {selectedRegionId !== rect.regionId && (
-                <text
-                  data-region-id={rect.regionId}
-                  x={rect.x + rect.width / 2}
-                  y={rect.y + rect.height / 2}
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fontSize={12}
-                  fill="#fff"
-                  pointerEvents="none"
-                >
-                  {region?.name ?? rect.regionId}
-                </text>
+              >
+                <title>{tooltipLines.join('\n')}</title>
+              </rect>
+              {showLabel && (
+                <>
+                  <text
+                    data-region-id={rect.regionId}
+                    x={rect.x + rect.width / 2}
+                    y={rect.y + (showCount ? rect.height / 2 - fontSize * 0.3 : rect.height / 2)}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fontSize={fontSize}
+                    fontWeight={600}
+                    fill="#fff"
+                    style={{ textShadow: '0 1px 3px rgba(0,0,0,0.6)' }}
+                    pointerEvents="none"
+                  >
+                    {displayText}
+                  </text>
+                  {showCount && (
+                    <text
+                      x={rect.x + rect.width / 2}
+                      y={rect.y + rect.height / 2 + fontSize * 0.8}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fontSize={Math.max(7, fontSize * 0.7)}
+                      fill="rgba(255,255,255,0.7)"
+                      pointerEvents="none"
+                    >
+                      {moduleCount} {moduleCount === 1 ? 'module' : 'modules'}
+                    </text>
+                  )}
+                </>
               )}
             </g>
           );

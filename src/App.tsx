@@ -197,9 +197,9 @@ export function App() {
   const visibleResults = results.slice(0, 20);
 
   return (
-    <div>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#1a1a2e', color: '#eee', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       {/* Header */}
-      <div style={{ display: 'flex', gap: 8, padding: 8, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 8, padding: '8px 12px', alignItems: 'center', background: '#16213e', borderBottom: '1px solid #0f3460', flexShrink: 0 }}>
         <input
           type="text"
           value={path}
@@ -264,7 +264,7 @@ export function App() {
 
       {/* Breadcrumbs */}
       {status === 'completed' && (
-        <nav style={{ padding: '0 8px' }}>
+        <nav style={{ padding: '4px 12px', fontSize: 13, color: '#aaa', flexShrink: 0 }}>
           {zoomStack.length > 0 ? (
             <span
               data-breadcrumb
@@ -305,17 +305,21 @@ export function App() {
       )}
 
       {/* Main content */}
-      <div style={{ display: 'flex' }}>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* Map area */}
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, position: 'relative' }}>
           {status === 'idle' && !scanData && (
-            <div>Scan a project to begin</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#666', fontSize: 18 }}>
+              Scan a project to begin
+            </div>
           )}
           {(status === 'scanning' || status === 'completed' || isZoomed) && (
-            <div aria-hidden="true">
+            <div aria-hidden="true" style={{ width: '100%', height: '100%' }}>
               <MapRenderer
                 data={isLoading ? null : displayData}
                 loading={isLoading}
+                width={Math.max(600, window.innerWidth - 250)}
+                height={Math.max(400, window.innerHeight - 80)}
                 onZoomIn={handleZoomIn}
                 onRegionSelect={handleRegionSelect}
                 selectedRegionId={selectedRegionId}
@@ -327,7 +331,7 @@ export function App() {
         </div>
 
         {/* Sidebar */}
-        <div style={{ width: 250 }}>
+        <div style={{ width: 220, padding: '8px 12px', borderLeft: '1px solid #0f3460', overflowY: 'auto', fontSize: 13 }}>
           <LayerPicker
             layers={layers}
             activeLayers={activeLayers}
