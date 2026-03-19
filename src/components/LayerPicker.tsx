@@ -5,9 +5,10 @@ interface LayerPickerProps {
   layers: Layer[];
   activeLayers: string[];
   onToggleLayer: (id: string) => void;
+  loading?: boolean;
 }
 
-export function LayerPicker({ layers, activeLayers, onToggleLayer }: LayerPickerProps) {
+export function LayerPicker({ layers, activeLayers, onToggleLayer, loading }: LayerPickerProps) {
   if (layers.length === 0) {
     return <div>No layers</div>;
   }
@@ -23,8 +24,14 @@ export function LayerPicker({ layers, activeLayers, onToggleLayer }: LayerPicker
                 aria-label={layer.name}
                 checked={activeLayers.includes(layer.id)}
                 onChange={() => onToggleLayer(layer.id)}
+                disabled={loading && !activeLayers.includes(layer.id)}
               />
               {layer.name}
+              {loading && activeLayers.includes(layer.id) && (
+                <svg width="12" height="12" viewBox="0 0 24 24" style={{ marginLeft: 4, verticalAlign: 'middle', animation: 'spin 1s linear infinite' }}>
+                  <path d="M12 2a10 10 0 0 1 10 10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                </svg>
+              )}
             </label>
           </li>
         ))}

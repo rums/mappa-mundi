@@ -356,6 +356,7 @@ export function App() {
             layers={layers}
             activeLayers={activeLayers}
             onToggleLayer={handleToggleLayer}
+            loading={scoresLoading}
           />
           {scoresLoading && (
             <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center' }}>
