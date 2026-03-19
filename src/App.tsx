@@ -8,6 +8,7 @@ import { CirclePackRenderer } from './components/CirclePackRenderer';
 import { LayerPicker } from './components/LayerPicker';
 import { LayerDetailPanel } from './components/LayerDetailPanel';
 import { LensPicker } from './components/LensPicker';
+import { Spinner } from './components/Spinner';
 import type { ColorScale } from './utils/colorScale';
 import type { SemanticZoomLevel } from './types';
 import type { LayerScore } from './layers/types';
@@ -206,7 +207,16 @@ export function App() {
           onChange={e => setPath(e.target.value)}
           placeholder="Enter project path..."
         />
-        <button onClick={handleScan} disabled={!path.trim() || status === 'scanning'}>
+        <button
+          onClick={handleScan}
+          disabled={!path.trim() || status === 'scanning'}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px' }}
+        >
+          {status === 'scanning' && (
+            <svg width="14" height="14" viewBox="0 0 24 24" style={{ animation: 'spin 1s linear infinite' }}>
+              <path d="M12 2a10 10 0 0 1 10 10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+            </svg>
+          )}
           {status === 'scanning' ? 'Scanning...' : 'Scan'}
         </button>
 
@@ -313,11 +323,16 @@ export function App() {
               Scan a project to begin
             </div>
           )}
-          {(status === 'scanning' || status === 'completed' || isZoomed) && (
-            <div aria-hidden="true" style={{ width: '100%', height: '100%' }}>
+          {status === 'scanning' && !displayData && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+              <Spinner message="Scanning project and building semantic map..." size={48} />
+            </div>
+          )}
+          {(displayData || (status === 'scanning' && displayData)) && (
+            <div aria-hidden="true" style={{ width: '100%', height: '100%', position: 'relative' }}>
               <CirclePackRenderer
-                data={isLoading ? null : displayData}
-                loading={isLoading}
+                data={displayData}
+                loading={false}
                 width={Math.max(600, window.innerWidth - 250)}
                 height={Math.max(400, window.innerHeight - 80)}
                 onZoomIn={handleZoomIn}
@@ -326,6 +341,11 @@ export function App() {
                 regionScores={regionScores}
                 colorScale={regionScores ? DEFAULT_COLOR_SCALE : undefined}
               />
+              {isZoomed && zoomLoading && (
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(26,26,46,0.7)' }}>
+                  <Spinner message="Loading sub-level..." size={40} />
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -337,6 +357,11 @@ export function App() {
             activeLayers={activeLayers}
             onToggleLayer={handleToggleLayer}
           />
+          {scoresLoading && (
+            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center' }}>
+              <Spinner message="Computing layer scores..." size={24} />
+            </div>
+          )}
 
           {/* Detail panel — inside sidebar */}
           {showDetailPanel && selectedRegion && activeLayer && scores && (
