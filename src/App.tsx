@@ -17,14 +17,49 @@ interface ZoomEntry {
   label: string;
 }
 
+interface SavedProject {
+  path: string;
+  name: string;
+  scannedAt: string;
+  regionCount: number;
+  moduleCount: number;
+}
+
 export function App() {
   const [path, setPath] = useState('');
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
   const [zoomStack, setZoomStack] = useState<ZoomEntry[]>([]);
   const [searchDismissed, setSearchDismissed] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+  const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
 
-  const { scan, refresh, status, data: scanData, error } = useScan();
+  const { scan, refresh, status, data: scanData, error, loadDirect } = useScan();
+
+  // Fetch saved projects on mount and after scan completes
+  const fetchProjects = useCallback(() => {
+    fetch('/api/projects').then(r => r.json()).then(d => setSavedProjects(d.projects || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => { fetchProjects(); }, [fetchProjects]);
+  useEffect(() => { if (status === 'completed') fetchProjects(); }, [status, fetchProjects]);
+
+  const loadProject = useCallback(async (projectPath: string) => {
+    try {
+      const res = await fetch('/api/projects/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: projectPath }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.zoomLevel) {
+        loadDirect(data.zoomLevel);
+        setPath(projectPath);
+        setZoomStack([]);
+        setSelectedRegionId(null);
+      }
+    } catch {}
+  }, [loadDirect]);
   const currentZoomRegionId = zoomStack.length > 0 ? zoomStack[zoomStack.length - 1].regionId : null;
   const { data: zoomData, loading: zoomLoading } = useZoomLevel(currentZoomRegionId);
   const { layers, activeLayerId, activateLayer, deactivateLayer, scores, scoresLoading } = useLayers();
@@ -162,9 +197,24 @@ export function App() {
           onChange={e => setPath(e.target.value)}
           placeholder="Enter project path..."
         />
-        <button onClick={handleScan} disabled={!path.trim()}>
-          Scan
+        <button onClick={handleScan} disabled={!path.trim() || status === 'scanning'}>
+          {status === 'scanning' ? 'Scanning...' : 'Scan'}
         </button>
+
+        {savedProjects.length > 0 && (
+          <select
+            value=""
+            onChange={e => { if (e.target.value) loadProject(e.target.value); }}
+            style={{ marginLeft: 8 }}
+          >
+            <option value="">Load saved...</option>
+            {savedProjects.map(p => (
+              <option key={p.path} value={p.path}>
+                {p.name} ({p.moduleCount} modules, {p.regionCount} regions)
+              </option>
+            ))}
+          </select>
+        )}
 
         {/* Search */}
         <div ref={searchRef} style={{ position: 'relative', marginLeft: 'auto' }}>

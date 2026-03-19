@@ -18,6 +18,18 @@ export interface Job {
 
 const JOB_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+export interface SavedProject {
+  path: string;
+  name: string;
+  scannedAt: string;
+  regionCount: number;
+  moduleCount: number;
+  graph: DependencyGraph;
+  dirTree: DirectoryNode;
+  zoomLevel: SemanticZoomLevel;
+  regionModuleMap: Record<string, string[]>;
+}
+
 export class Orchestrator {
   private jobs = new Map<string, Job>();
   private activeProjectPath?: string;
@@ -25,6 +37,7 @@ export class Orchestrator {
   private lastGraph?: DependencyGraph;
   private lastDirTree?: DirectoryNode;
   private regionModuleMap?: Record<string, string[]>;
+  private savedProjects = new Map<string, SavedProject>();
 
   createJob(type: JobType): Job {
     const job: Job = {
@@ -132,5 +145,38 @@ export class Orchestrator {
 
   getRegionModuleMap(): Record<string, string[]> | undefined {
     return this.regionModuleMap;
+  }
+
+  saveProject(): void {
+    if (!this.activeProjectPath || !this.lastGraph || !this.lastDirTree || !this.lastZoomLevel) return;
+    const name = this.activeProjectPath.split('/').pop() || this.activeProjectPath;
+    this.savedProjects.set(this.activeProjectPath, {
+      path: this.activeProjectPath,
+      name,
+      scannedAt: new Date().toISOString(),
+      regionCount: this.lastZoomLevel.regions.length,
+      moduleCount: this.lastGraph.nodes.length,
+      graph: this.lastGraph,
+      dirTree: this.lastDirTree,
+      zoomLevel: this.lastZoomLevel,
+      regionModuleMap: this.regionModuleMap || {},
+    });
+  }
+
+  loadProject(path: string): boolean {
+    const saved = this.savedProjects.get(path);
+    if (!saved) return false;
+    this.activeProjectPath = saved.path;
+    this.lastGraph = saved.graph;
+    this.lastDirTree = saved.dirTree;
+    this.lastZoomLevel = saved.zoomLevel;
+    this.regionModuleMap = saved.regionModuleMap;
+    return true;
+  }
+
+  listProjects(): Array<{ path: string; name: string; scannedAt: string; regionCount: number; moduleCount: number }> {
+    return [...this.savedProjects.values()].map(({ path, name, scannedAt, regionCount, moduleCount }) => ({
+      path, name, scannedAt, regionCount, moduleCount,
+    }));
   }
 }

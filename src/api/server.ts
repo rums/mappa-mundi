@@ -63,5 +63,22 @@ export async function createApp() {
   registerSearchRoutes(app, orchestrator);
   registerRefreshRoutes(app, orchestrator);
 
+  // Project list and load
+  app.get('/api/projects', async (_request, reply) => {
+    return reply.send({ projects: orchestrator.listProjects() });
+  });
+
+  app.post('/api/projects/load', async (request, reply) => {
+    const { path } = request.body as { path: string };
+    if (!path) {
+      return reply.status(400).send({ error: { code: 'INVALID_REQUEST', message: 'path is required' } });
+    }
+    const loaded = orchestrator.loadProject(path);
+    if (!loaded) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Project not found' } });
+    }
+    return reply.send({ loaded: true, zoomLevel: orchestrator.getLastZoomLevel() });
+  });
+
   return app;
 }

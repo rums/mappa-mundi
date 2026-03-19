@@ -81,6 +81,7 @@ export function runScanPipeline(orchestrator: Orchestrator, jobId: string, proje
       orchestrator.setRegionModuleMap(regionModuleMap);
 
       orchestrator.updateJobStatus(jobId, 'completed', { result: zoomLevel });
+      orchestrator.saveProject();
     } catch (err: any) {
       orchestrator.updateJobStatus(jobId, 'failed', {
         error: err?.message || 'Scan failed',

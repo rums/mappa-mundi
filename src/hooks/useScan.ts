@@ -100,11 +100,17 @@ export function useScan() {
     startPolling(jobId);
   }, [clearPolling, startPolling]);
 
+  const loadDirect = useCallback((data: any) => {
+    clearPolling();
+    setState({ status: 'completed', data, error: null });
+  }, [clearPolling]);
+
   return {
     status: state.status,
     data: state.data,
     error: state.error,
     scan,
     refresh,
+    loadDirect,
   };
 }
