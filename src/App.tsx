@@ -5,6 +5,8 @@ import { useLayers } from './hooks/useLayers';
 import { useLenses } from './hooks/useLenses';
 import { useSearch } from './hooks/useSearch';
 import { CirclePackRenderer } from './components/CirclePackRenderer';
+import { ZoomableCirclePackRenderer } from './components/ZoomableCirclePackRenderer';
+import { useHierarchy } from './hooks/useHierarchy';
 import { LayerPicker } from './components/LayerPicker';
 import { LayerDetailPanel } from './components/LayerDetailPanel';
 import { LensPicker } from './components/LensPicker';
@@ -69,6 +71,9 @@ export function App() {
   const { data: zoomData, moduleMap: zoomModuleMap, loading: zoomLoading } = useZoomLevel(currentZoomRegionId);
   const { layers, activeLayerId, activateLayer, deactivateLayer, scores, scoresLoading } = useLayers();
   const { setQuery, results, error: searchError } = useSearch();
+  const [useZoomableView, setUseZoomableView] = useState(true);
+  const [zoomBreadcrumbs, setZoomBreadcrumbs] = useState<{ id: string; name: string }[]>([]);
+  const { tree: hierarchyTree, loading: hierarchyLoading, requestChildren } = useHierarchy(scanData);
 
   // Determine what data to show
   const isZoomed = zoomStack.length > 0;
@@ -290,26 +295,49 @@ export function App() {
 
       {/* Breadcrumbs */}
       {status === 'completed' && (
-        <nav style={{ padding: '4px 12px', fontSize: 13, color: '#aaa', flexShrink: 0 }}>
-          {zoomStack.length > 0 ? (
-            <span
-              data-breadcrumb
-              style={{ cursor: 'pointer', textDecoration: 'underline' }}
-              onClick={() => handleBreadcrumbClick(-1)}
-            >
-              Root
-            </span>
-          ) : (
-            <span data-breadcrumb>Root</span>
-          )}
-          {zoomStack.map((entry, i) => (
-            <span key={i}>
-              {' > '}
-              <span data-breadcrumb>
-                {entry.label}
-              </span>
-            </span>
-          ))}
+        <nav style={{ padding: '4px 12px', fontSize: 13, color: '#aaa', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            {useZoomableView ? (
+              <>
+                {zoomBreadcrumbs.map((entry, i) => (
+                  <span key={entry.id}>
+                    {i > 0 && ' > '}
+                    <span data-breadcrumb>{entry.name}</span>
+                  </span>
+                ))}
+                {zoomBreadcrumbs.length === 0 && <span data-breadcrumb>Root</span>}
+              </>
+            ) : (
+              <>
+                {zoomStack.length > 0 ? (
+                  <span
+                    data-breadcrumb
+                    style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                    onClick={() => handleBreadcrumbClick(-1)}
+                  >
+                    Root
+                  </span>
+                ) : (
+                  <span data-breadcrumb>Root</span>
+                )}
+                {zoomStack.map((entry, i) => (
+                  <span key={i}>
+                    {' > '}
+                    <span data-breadcrumb>
+                      {entry.label}
+                    </span>
+                  </span>
+                ))}
+              </>
+            )}
+          </div>
+          <button
+            onClick={() => setUseZoomableView((v) => !v)}
+            style={{ fontSize: 11, padding: '2px 8px', background: '#0f3460', color: '#aaa', border: '1px solid #1a5276', borderRadius: 4, cursor: 'pointer' }}
+            title={useZoomableView ? 'Switch to classic view' : 'Switch to zoomable view'}
+          >
+            {useZoomableView ? 'Classic' : 'Zoomable'}
+          </button>
         </nav>
       )}
 
@@ -348,21 +376,45 @@ export function App() {
           )}
           {(displayData || (status === 'scanning' && displayData)) && (
             <div aria-hidden="true" style={{ width: '100%', height: '100%', position: 'relative' }}>
-              <CirclePackRenderer
-                data={displayData}
-                loading={false}
-                width={Math.max(600, window.innerWidth - 250)}
-                height={Math.max(400, window.innerHeight - 80)}
-                onZoomIn={handleZoomIn}
-                onRegionSelect={handleRegionSelect}
-                selectedRegionId={selectedRegionId}
-                regionScores={regionScores}
-                colorScale={regionScores ? DEFAULT_COLOR_SCALE : undefined}
-              />
-              {isZoomed && zoomLoading && (
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(26,26,46,0.7)' }}>
-                  <Spinner message="Loading sub-level..." size={40} />
-                </div>
+              {useZoomableView ? (
+                <>
+                  <ZoomableCirclePackRenderer
+                    root={hierarchyTree}
+                    loading={hierarchyLoading && !hierarchyTree}
+                    width={Math.max(600, window.innerWidth - 250)}
+                    height={Math.max(400, window.innerHeight - 80)}
+                    onRegionSelect={handleRegionSelect}
+                    onRequestChildren={requestChildren}
+                    selectedRegionId={selectedRegionId}
+                    regionScores={regionScores}
+                    colorScale={regionScores ? DEFAULT_COLOR_SCALE : undefined}
+                    onFocusChange={setZoomBreadcrumbs}
+                  />
+                  {hierarchyLoading && (
+                    <div style={{ position: 'absolute', bottom: 12, right: 12, background: 'rgba(26,26,46,0.8)', padding: '4px 12px', borderRadius: 4, fontSize: 12, color: '#aaa' }}>
+                      Loading deeper levels...
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <CirclePackRenderer
+                    data={displayData}
+                    loading={false}
+                    width={Math.max(600, window.innerWidth - 250)}
+                    height={Math.max(400, window.innerHeight - 80)}
+                    onZoomIn={handleZoomIn}
+                    onRegionSelect={handleRegionSelect}
+                    selectedRegionId={selectedRegionId}
+                    regionScores={regionScores}
+                    colorScale={regionScores ? DEFAULT_COLOR_SCALE : undefined}
+                  />
+                  {isZoomed && zoomLoading && (
+                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(26,26,46,0.7)' }}>
+                      <Spinner message="Loading sub-level..." size={40} />
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
