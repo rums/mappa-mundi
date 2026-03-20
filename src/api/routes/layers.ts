@@ -4,6 +4,12 @@ import { LayerRegistry } from '../../layers/registry.js';
 import { ComplexityLayer } from '../../layers/complexity-layer.js';
 import { GitStalenessLayer } from '../../layers/staleness-layer.js';
 import { TestCoverageLayer } from '../../layers/coverage-layer.js';
+import { ChangeFrequencyLayer } from '../../layers/change-frequency-layer.js';
+import { RecentActivityLayer } from '../../layers/recent-activity-layer.js';
+import { AuthorCountLayer } from '../../layers/author-count-layer.js';
+import { ChurnLayer } from '../../layers/churn-layer.js';
+import { collectGitStats } from '../../layers/git-stats.js';
+import type { GitStats } from '../../layers/git-stats.js';
 import type { LensStore } from '../../lenses/store.js';
 import { evaluateLayerLens } from '../../lenses/layer-evaluator.js';
 import { createFastLLMClient } from '../llm-client.js';
@@ -42,7 +48,31 @@ export function createLayerRegistry(): LayerRegistry {
   registry.register(new ComplexityLayer());
   registry.register(new GitStalenessLayer());
   registry.register(new TestCoverageLayer());
+  registry.register(new ChangeFrequencyLayer());
+  registry.register(new RecentActivityLayer());
+  registry.register(new AuthorCountLayer());
+  registry.register(new ChurnLayer());
   return registry;
+}
+
+/** IDs of layers that need git stats passed via config */
+const GIT_LAYER_IDS = new Set([
+  'git-change-frequency',
+  'git-recent-activity',
+  'git-author-count',
+  'git-churn',
+]);
+
+/** Cache git stats per project path to avoid re-running git commands */
+let cachedGitStats: { projectPath: string; stats: GitStats } | null = null;
+
+function getGitStatsForProject(projectPath: string): GitStats {
+  if (cachedGitStats && cachedGitStats.projectPath === projectPath) {
+    return cachedGitStats.stats;
+  }
+  const stats = collectGitStats(projectPath);
+  cachedGitStats = { projectPath, stats };
+  return stats;
 }
 
 export function registerLayerRoutes(app: FastifyInstance, orchestrator: Orchestrator, registry: LayerRegistry, lensStore?: LensStore): void {
@@ -127,7 +157,22 @@ export function registerLayerRoutes(app: FastifyInstance, orchestrator: Orchestr
       });
     }
 
-    const result = layer.computeModuleScores(graph, dirTree);
+    // Build config for git-powered layers
+    let config: Record<string, unknown> | undefined;
+    if (GIT_LAYER_IDS.has(layerId)) {
+      const projectPath = orchestrator.getActiveProjectPath();
+      if (projectPath) {
+        const gitStats = getGitStatsForProject(projectPath);
+        config = {
+          changeFrequency: gitStats.changeFrequency,
+          recentActivity: gitStats.recentActivity,
+          authorCount: gitStats.authorCount,
+          churn: gitStats.churn,
+        };
+      }
+    }
+
+    const result = layer.computeModuleScores(graph, dirTree, config);
 
     // Convert Map to plain object
     let moduleScores: Record<string, any> = {};
