@@ -71,7 +71,7 @@ export function App() {
   const { data: zoomData, moduleMap: zoomModuleMap, loading: zoomLoading } = useZoomLevel(currentZoomRegionId);
   const { layers, activeLayerId, activateLayer, deactivateLayer, scores, scoresLoading } = useLayers();
   const { setQuery, results, error: searchError } = useSearch();
-  const [useZoomableView, setUseZoomableView] = useState(true);
+  const [useZoomableView, setUseZoomableView] = useState(false);
   const [zoomBreadcrumbs, setZoomBreadcrumbs] = useState<{ id: string; name: string }[]>([]);
   const { tree: hierarchyTree, loading: hierarchyLoading, requestChildren } = useHierarchy(scanData);
 
