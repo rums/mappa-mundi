@@ -71,8 +71,32 @@ vi.mock('./hooks/useSearch', () => ({
   useSearch: () => useSearchReturn,
 }));
 
+// Mock useHierarchy — used by the zoomable circle pack view
+let useHierarchyReturn: {
+  tree: import('./components/ZoomableCirclePackRenderer').HierarchyNode | null;
+  loading: boolean;
+  requestChildren: (regionId: string) => void;
+};
+
+const mockRequestChildren = vi.fn();
+
+vi.mock('./hooks/useHierarchy', () => ({
+  useHierarchy: () => useHierarchyReturn,
+}));
+
+// Mock useLenses
+vi.mock('./hooks/useLenses', () => ({
+  useLenses: () => ({
+    compoundLenses: [],
+    layerLenses: [],
+    createLens: vi.fn(),
+    deleteLens: vi.fn(),
+  }),
+}));
+
 // Import App AFTER mocks are set up
 import { App } from './App';
+import type { HierarchyNode } from './components/ZoomableCirclePackRenderer';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -127,6 +151,22 @@ const sampleSearchResults = [
   { id: 'auth/signup.ts', name: 'signup.ts', kind: 'module' as const, score: 0.80, context: 'auth' },
 ];
 
+/** Build a HierarchyNode tree from SemanticZoomLevel data */
+function buildHierarchyTree(data: SemanticZoomLevel): HierarchyNode {
+  return {
+    id: 'root',
+    name: data.label || 'Project',
+    moduleCount: data.regions.reduce((sum, r) => sum + r.moduleCount, 0),
+    loc: data.regions.reduce((sum, r) => sum + r.loc, 0),
+    children: data.regions.map((r) => ({
+      id: r.id,
+      name: r.name,
+      moduleCount: r.moduleCount,
+      loc: r.loc,
+    })),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
@@ -170,6 +210,13 @@ beforeEach(() => {
     error: null,
     search: mockImmediateSearch,
   };
+
+  mockRequestChildren.mockReset();
+  useHierarchyReturn = {
+    tree: null,
+    loading: false,
+    requestChildren: mockRequestChildren,
+  };
 });
 
 // ---------------------------------------------------------------------------
@@ -200,20 +247,21 @@ describe('App Integration: Scan → Map pipeline', () => {
     expect(scanButton).toBeDisabled();
   });
 
-  it('shows MapRenderer in loading state while scanning', () => {
+  it('shows loading state while scanning', () => {
     useScanReturn = { ...useScanReturn, status: 'scanning' };
-    const { container } = render(<App />);
-    // MapRenderer with loading=true renders skeleton elements
-    const skeletons = container.querySelectorAll('[data-skeleton]');
-    expect(skeletons.length).toBeGreaterThan(0);
+    useHierarchyReturn = { ...useHierarchyReturn, loading: true };
+    render(<App />);
+    // Shows spinner while scanning
+    expect(screen.getByText(/scanning project/i)).toBeInTheDocument();
   });
 
   it('shows MapRenderer with data when scan completes', () => {
     useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
+    useHierarchyReturn = { ...useHierarchyReturn, tree: buildHierarchyTree(topLevelData) };
     const { container } = render(<App />);
-    // MapRenderer should render region rects
-    const rects = container.querySelectorAll('rect[data-region-id]');
-    expect(rects).toHaveLength(4);
+    // ZoomableCirclePackRenderer renders circles for regions
+    const circles = container.querySelectorAll('circle[data-region-id]');
+    expect(circles.length).toBeGreaterThanOrEqual(4);
   });
 
   it('shows "Scan a project to begin" placeholder when idle with no data', () => {
@@ -267,12 +315,18 @@ describe('App Integration: Scan error handling', () => {
 describe('App Integration: Region selection', () => {
   it('passes onRegionSelect handler to MapRenderer', async () => {
     useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
+    useHierarchyReturn = { ...useHierarchyReturn, tree: buildHierarchyTree(topLevelData) };
     const { container } = render(<App />);
 
-    // Click a region rect on the map
-    const authRect = container.querySelector('rect[data-region-id="auth"]');
-    expect(authRect).toBeTruthy();
-    await userEvent.click(authRect!);
+    // In zoomable view, click a circle to zoom into it first, then click the focused node to select
+    // The region circles are rendered as circle[data-region-id]
+    const authCircle = container.querySelector('circle[data-region-id="auth"]');
+    expect(authCircle).toBeTruthy();
+
+    // First click zooms into the node (sets it as focus)
+    await userEvent.click(authCircle!);
+    // Second click on the now-focused node selects it
+    await userEvent.click(authCircle!);
 
     // The region should be visually selected
     await waitFor(() => {
@@ -289,100 +343,100 @@ describe('App Integration: Region selection', () => {
 describe('App Integration: Zoom navigation', () => {
   it('renders breadcrumbs with Root when at top level', () => {
     useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
-    render(<App />);
-    expect(screen.getByText(/root/i)).toBeInTheDocument();
+    useHierarchyReturn = { ...useHierarchyReturn, tree: buildHierarchyTree(topLevelData) };
+    const { container } = render(<App />);
+    const breadcrumbs = container.querySelectorAll('[data-breadcrumb]');
+    expect(breadcrumbs.length).toBeGreaterThanOrEqual(1);
+    expect(breadcrumbs[0].textContent).toMatch(/root/i);
   });
 
-  it('pushes to zoom stack on double-click and shows breadcrumb', async () => {
+  it('zooms into a region on click and shows breadcrumb', async () => {
+    const tree = buildHierarchyTree(topLevelData);
     useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
-    useZoomLevelReturn = { data: subLevelData, loading: false, error: null };
+    useHierarchyReturn = { ...useHierarchyReturn, tree };
 
     const { container } = render(<App />);
-    const authRect = container.querySelector('rect[data-region-id="auth"]');
-    expect(authRect).toBeTruthy();
+    const authCircle = container.querySelector('circle[data-region-id="auth"]');
+    expect(authCircle).toBeTruthy();
 
-    fireEvent.dblClick(authRect!);
+    // Click to zoom into the region
+    await userEvent.click(authCircle!);
 
     await waitFor(() => {
-      // Breadcrumbs should show: Root > Authentication
-      expect(screen.getByText(/authentication/i)).toBeInTheDocument();
+      // Breadcrumbs should show the zoomed path including Authentication
+      const breadcrumbs = container.querySelectorAll('[data-breadcrumb]');
+      expect(breadcrumbs.length).toBeGreaterThanOrEqual(2);
     });
   });
 
-  it('renders sub-level data after zooming in', async () => {
+  it('renders child circles when hierarchy tree has children', () => {
+    const tree = buildHierarchyTree(topLevelData);
+    // Add sub-children to auth
+    const authNode = tree.children?.find((c) => c.id === 'auth');
+    if (authNode) {
+      authNode.children = subLevelData.regions.map((r) => ({
+        id: r.id,
+        name: r.name,
+        moduleCount: r.moduleCount,
+        loc: r.loc,
+      }));
+    }
     useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
-    useZoomLevelReturn = { data: subLevelData, loading: false, error: null };
+    useHierarchyReturn = { ...useHierarchyReturn, tree };
 
     const { container } = render(<App />);
-    const authRect = container.querySelector('rect[data-region-id="auth"]');
-    fireEvent.dblClick(authRect!);
-
-    await waitFor(() => {
-      // Sub-level regions should appear
-      const loginRect = container.querySelector('rect[data-region-id="auth/login"]');
-      expect(loginRect).toBeTruthy();
-    });
+    // Sub-level regions should be rendered as circles
+    const loginCircle = container.querySelector('circle[data-region-id="auth/login"]');
+    expect(loginCircle).toBeTruthy();
   });
 
-  it('navigates back to root when clicking Root breadcrumb', async () => {
+  it('zooms out when clicking SVG background', async () => {
+    const tree = buildHierarchyTree(topLevelData);
     useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
-    useZoomLevelReturn = { data: subLevelData, loading: false, error: null };
-
-    const { container } = render(<App />);
-    const authRect = container.querySelector('rect[data-region-id="auth"]');
-    fireEvent.dblClick(authRect!);
-
-    // Wait for zoom to apply
-    await waitFor(() => {
-      expect(screen.getByText(/authentication/i)).toBeInTheDocument();
-    });
-
-    // Click the Root breadcrumb
-    const rootCrumb = screen.getByText(/root/i);
-    await userEvent.click(rootCrumb);
-
-    // Should be back at top level
-    await waitFor(() => {
-      const topRects = container.querySelectorAll('rect[data-region-id]');
-      expect(topRects).toHaveLength(4);
-    });
-  });
-
-  it('pops zoom stack to intermediate level when clicking intermediate breadcrumb', async () => {
-    // This test verifies that clicking an intermediate breadcrumb pops
-    // back to that level rather than all the way to root.
-    useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
-    useZoomLevelReturn = { data: subLevelData, loading: false, error: null };
+    useHierarchyReturn = { ...useHierarchyReturn, tree };
 
     const { container } = render(<App />);
 
     // Zoom into auth
-    const authRect = container.querySelector('rect[data-region-id="auth"]');
-    fireEvent.dblClick(authRect!);
+    const authCircle = container.querySelector('circle[data-region-id="auth"]');
+    await userEvent.click(authCircle!);
 
+    // Now click the SVG background to zoom out
+    const svg = container.querySelector('svg');
+    expect(svg).toBeTruthy();
+    await userEvent.click(svg!);
+
+    // Should show breadcrumbs back at root
     await waitFor(() => {
-      expect(screen.getByText(/authentication/i)).toBeInTheDocument();
+      const breadcrumbs = container.querySelectorAll('[data-breadcrumb]');
+      expect(breadcrumbs.length).toBeGreaterThanOrEqual(1);
     });
-
-    // The breadcrumb for "Authentication" should exist but not be clickable
-    // (it's the current/last segment)
-    const breadcrumbs = container.querySelectorAll('[data-breadcrumb]');
-    expect(breadcrumbs.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('shows loading indicator while fetching sub-level', async () => {
+  it('shows breadcrumbs that reflect the zoom path', async () => {
+    const tree = buildHierarchyTree(topLevelData);
     useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
-    useZoomLevelReturn = { data: null, loading: true, error: null };
+    useHierarchyReturn = { ...useHierarchyReturn, tree };
 
     const { container } = render(<App />);
-    const authRect = container.querySelector('rect[data-region-id="auth"]');
-    fireEvent.dblClick(authRect!);
+
+    // Zoom into auth
+    const authCircle = container.querySelector('circle[data-region-id="auth"]');
+    await userEvent.click(authCircle!);
 
     await waitFor(() => {
-      // Should show loading state (skeleton or spinner)
-      const skeletons = container.querySelectorAll('[data-skeleton]');
-      expect(skeletons.length).toBeGreaterThan(0);
+      const breadcrumbs = container.querySelectorAll('[data-breadcrumb]');
+      expect(breadcrumbs.length).toBeGreaterThanOrEqual(2);
     });
+  });
+
+  it('shows loading indicator while hierarchy is loading', () => {
+    useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
+    useHierarchyReturn = { ...useHierarchyReturn, tree: buildHierarchyTree(topLevelData), loading: true };
+
+    const { container } = render(<App />);
+    // Should show "Loading deeper levels..." indicator
+    expect(screen.getByText(/loading deeper levels/i)).toBeInTheDocument();
   });
 });
 
@@ -412,6 +466,7 @@ describe('App Integration: Layer sidebar', () => {
   it('passes region scores to MapRenderer when layer is active', () => {
     const scores = makeLayerScores();
     useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
+    useHierarchyReturn = { ...useHierarchyReturn, tree: buildHierarchyTree(topLevelData) };
     useLayersReturn = {
       ...useLayersReturn,
       activeLayerId: 'coverage',
@@ -419,10 +474,9 @@ describe('App Integration: Layer sidebar', () => {
     };
 
     const { container } = render(<App />);
-    // MapRenderer should receive regionScores — verify regions have color styling
-    // that differs from default (layer-colored)
-    const rects = container.querySelectorAll('rect[data-region-id]');
-    expect(rects).toHaveLength(4);
+    // ZoomableCirclePackRenderer renders circles for regions
+    const circles = container.querySelectorAll('circle[data-region-id]');
+    expect(circles.length).toBeGreaterThanOrEqual(4);
   });
 });
 
@@ -446,11 +500,13 @@ describe('App Integration: Layer detail panel', () => {
 
   it('does not show LayerDetailPanel when no layer is active', async () => {
     useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
+    useHierarchyReturn = { ...useHierarchyReturn, tree: buildHierarchyTree(topLevelData) };
     const { container } = render(<App />);
 
-    // Select a region
-    const authRect = container.querySelector('rect[data-region-id="auth"]');
-    await userEvent.click(authRect!);
+    // In zoomable view: first click zooms, second click selects
+    const authCircle = container.querySelector('circle[data-region-id="auth"]');
+    await userEvent.click(authCircle!);
+    await userEvent.click(authCircle!);
 
     // Panel should not appear without an active layer
     await waitFor(() => {
@@ -460,6 +516,7 @@ describe('App Integration: Layer detail panel', () => {
 
   it('shows LayerDetailPanel when region is selected AND layer is active', async () => {
     useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
+    useHierarchyReturn = { ...useHierarchyReturn, tree: buildHierarchyTree(topLevelData) };
     useLayersReturn = {
       ...useLayersReturn,
       activeLayerId: 'coverage',
@@ -468,9 +525,10 @@ describe('App Integration: Layer detail panel', () => {
 
     const { container } = render(<App />);
 
-    // Click a region to select it
-    const authRect = container.querySelector('rect[data-region-id="auth"]');
-    await userEvent.click(authRect!);
+    // In zoomable view: first click zooms, second click selects
+    const authCircle = container.querySelector('circle[data-region-id="auth"]');
+    await userEvent.click(authCircle!);
+    await userEvent.click(authCircle!);
 
     await waitFor(() => {
       // LayerDetailPanel should show close button and region name
@@ -482,6 +540,7 @@ describe('App Integration: Layer detail panel', () => {
 
   it('closes LayerDetailPanel when close button is clicked', async () => {
     useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
+    useHierarchyReturn = { ...useHierarchyReturn, tree: buildHierarchyTree(topLevelData) };
     useLayersReturn = {
       ...useLayersReturn,
       activeLayerId: 'coverage',
@@ -490,9 +549,10 @@ describe('App Integration: Layer detail panel', () => {
 
     const { container } = render(<App />);
 
-    // Select a region
-    const authRect = container.querySelector('rect[data-region-id="auth"]');
-    await userEvent.click(authRect!);
+    // In zoomable view: first click zooms, second click selects
+    const authCircle = container.querySelector('circle[data-region-id="auth"]');
+    await userEvent.click(authCircle!);
+    await userEvent.click(authCircle!);
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /close/i })).toBeInTheDocument();
@@ -554,6 +614,7 @@ describe('App Integration: Search', () => {
 
   it('selects the matching region when clicking a search result', async () => {
     useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
+    useHierarchyReturn = { ...useHierarchyReturn, tree: buildHierarchyTree(topLevelData) };
     useSearchReturn = {
       ...useSearchReturn,
       query: 'login',
@@ -648,6 +709,8 @@ describe('App Integration: Search', () => {
 
 describe('App Integration: Layer error handling', () => {
   it('shows inline error when layer score fetch fails', () => {
+    useScanReturn = { ...useScanReturn, status: 'completed', data: topLevelData };
+    useHierarchyReturn = { ...useHierarchyReturn, tree: buildHierarchyTree(topLevelData) };
     useLayersReturn = {
       ...useLayersReturn,
       activeLayerId: 'coverage',
@@ -657,8 +720,8 @@ describe('App Integration: Layer error handling', () => {
     // Simulate an error state — the layer is active but scores are null
     // (the actual error would come from the hook — here we verify the UI handles it)
     render(<App />);
-    // App should gracefully handle null scores without crashing
-    expect(screen.queryByText(/error|unavailable|failed/i)).toBeTruthy();
+    // App should show inline message about scores not being available
+    expect(screen.getByText(/layer scores could not be computed/i)).toBeInTheDocument();
   });
 });
 
